@@ -11,6 +11,9 @@ project:
 
   toc:
     - file: "index.md"
+    - title: "Explanation"
+      children:
+        - pattern: "explanation/*.md"
 
 site:
   template: "book-theme"
