@@ -11,3 +11,17 @@ less repeatable, reproducible, and understandable.
 Enter _GeoJupyter Trail_! And so on and so forth.
 
 For more, find the Trail initiative & project planning information here: <https://geojupyter.github.io/initiatives/initiatives/trail/>
+
+
+## Goals
+
+* Enable users to track work that traverses multiple tools.
+* Track interactions that are normally very difficult to track or remember, like GUI interactions.
+* Provide a user interface that helps users trust that they are not being surveilled.
+
+
+## Non-goals
+
+* "Surveil" / track / listen to everything happening on the user's computer. **No
+  root/admin access**.
+* Understand or analyze any code that the user executed. **No static analysis**.
