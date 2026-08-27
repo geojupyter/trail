@@ -1,0 +1,27 @@
+version: 1
+
+project:
+  title: "GeoJupyter Trail"
+  license: "MIT"
+  github: &repo-url "https://github.com/geojupyter/trail"
+
+  exclude:
+    - "_*"
+    - "README.md"
+
+  toc:
+    - file: "index.md"
+
+site:
+  template: "book-theme"
+
+  actions:
+    - title: "View source"
+      url: *repo-url
+
+  options:
+    folders: true
+    style: "assets/styles/style.css"
+    # favicon: favicon.ico
+    # logo: site_logo.png
+    logo_text: "GeoJupyter Trail"
