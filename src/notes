@@ -1,0 +1,93 @@
+Trail is the project record that lives inside a project folder, like.git, and as one main task keeps track of the datasets a project uses and what happens to them across tools.
+ In initiative I described three places Trail listens: the kernel (IPython cell events), JupyterGIS (map signals), and the OS (file events).
+ For Thursday I only want the OS part and the resource tracking.
+
+What I want to see working end to end on a small toy project: initialize Trail in a folder, register two or three files as resources,
+change one of them outside the notebook (overwrite it, rename it, delete it), and have Trail report what changed and to which resource. That is the whole prototype. If that works cleanly we build the rest on top of it.
+
+A few hints so you don't spend time on things I could easily tell you . Think git, not a daemon.
+Git does not watch your files, it diffs on demand when you run git status. Start there: record size and mtime when a
+resource is registered, and compare against the current file when asked. OS file events (watchdog or similar) can come
+later as an optional layer for immediacy, they are not the foundation. Keep the store dumb: an append only log where each line is one record,
+with a handful of resource records and event records. No database, no fancy schema, no CRDT. Register resources explicitly, one call or one command per file.
+Do not auto register everything in the folder, that would sweep in notebooks, scripts, .env files etc as if they were data. IDs: the project gets one ID set once at init,
+and each resource gets its own local ID inside the project. Don't derive ID from the path or the file name, those change and the ID has to survive that. A random ID with a
+uniqueness check at creation is enough for now. Project ID can be very simple for now, we make it robust later.
+
+Dont overengineer this. Standard library only if you can, a few small modules, and a couple of tests that prove the scenario above.
+I care more about the design being right than the code being complete. Bring what you have till Thursday and we go through it together. (edited) 
+[3:36 PM]The resource id assignment and then having those hooks that I described in initiative
+
+
+ask is to minimize friction of geospatial workflows in Jupyter
+
+Download files, might forget the filepath, GUI, task switching
+Datasets are untracked
+GeoJupyter trail: How can we keep track of things that actually happen from
+Geojupyter trail: something similar to Git
+	it's a tool for tracking implicit user interactions
+	things can be implicitly recorded
+tool: geojupyter connect
+	data discovery tool
+	user is selecting datasets, select two datasets, one they download
+
+Geojupyter trail, whenever they load, project ID is assign
+whenever file is written, rewritten, events will be tracked
+
+Switch between notebooks, know at what time you switched. We don't care about code, we care about code
+
+https://github.com/geojupyter/initiatives/blob/main/initiatives/001-trail/index.md
+
+For each cell that is executed within the jupyter ecosystem, you have a pre-cell run and a post-cell run. You can define some events to track if the data changed.
+
+GUI interactions have their own event registers
+	User opens up the map
+	Uper clicks the map, zooms in
+	We have a book on those events
+	we record those actions
+
+Matt is working on jupyter GIS
+
+Jupyter is a messy codebase
+
+Skeleton
+How should we assign a project ID?
+	when we do trail init
+		how do we make it unique and stable?
+		start searching or thinking?
+	IDs should only be within the project
+
+	Files that you put in a certain folder to be tracked
+	How in different OS systems we can have this tracked
+
+Read the initiative that Maryam sent me
+For every OS, you have some triggers/hooks whenever a file is read by another system. You need to have a log of these events, probably assign to some JSON file. With Jupyter, you have a SQLite database.
+
+Why do we need this? Provenance for sure and reproducability, but also you have agents now, and you need some accountability of what happened.
+
+When you want to write a paper or report of what you did, you can have an AI create a summary: create latex or markdown of what you did. Maybe later, we can define some profiles.
+
+The whole scope is the scope of the machine: don't want to be across the WWW,
+
+Can we use the trail to train models?
+
+We need to have one Nominatim test
+CI/CD every month to check
+In Maryam's PR she updated the toml, how weights are being shared.
+No longer on google drive
+No longer need gdown in our dependencies
+Refactoring to have segtile and vectile
+Making it more numpy: speed up things a little
+
+Read the initiative for the GeoJupyter / trail; ask questions
+No other source than Maryam
+
+Tasks:
+1. read initiative, ask questions, prototype
+trail init
+resources added,
+2. automatically detect that a resource is tracked, detect what are the triggers
+3. read about how jupyter tracks history
+
+juypter has lots of magic tricks e.g. %history; what can we do to track the history? What's being recorded? In jupyter we have pre-cell and post-cell events.
+Order of execution is important for the user: have history kept somewhere.
