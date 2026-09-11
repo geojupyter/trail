@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections
 
 import watchdog
@@ -14,17 +16,19 @@ from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 from pathlib import Path
 from dataclasses import dataclass, field
 from uuid import uuid4
+from .watchdog import Watchdog
+from .node import Node
+
 if TYPE_CHECKING:
     from .trail import Trail
 
-class Files(collections.UserDict):
+class Files(
+    collections.UserDict,
+    Node,
+):
     trail: Trail = None
+    _parent: Trail = None
 
-
-
-
-
-
-
-
-
+    @cached_property
+    def watchdog(self):
+        return Watchdog(self)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platformdirs
 from dataclasses import dataclass
 
 import dataclasses
@@ -7,6 +8,7 @@ from functools import cache, cached_property, lru_cache, partial, partialmethod,
 from collections import UserDict, UserList, UserString, defaultdict, deque, namedtuple, defaultdict, deque
 from functools import cached_property, lru_cache, partial, partialmethod, reduce, singledispatch, singledispatchmethod, \
     update_wrapper, wraps
+from .node import Node
 from typing import Any, Callable, Optional, Union, Type, TypeVar, Generic, Protocol, Annotated, Literal, Final, \
     ClassVar, TypeAlias, NamedTuple, TypedDict, Iterable, Iterator, Generator, cast, overload, TYPE_CHECKING, Self
 from dataclasses import dataclass, field
@@ -16,10 +18,13 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 from .files import Files
 from .file import File
+from .changes import Changes
 
 
-class Trail:
-    id: str = field(default_factory=lambda: uuid4().hex)
+class Trail(
+    Node
+):
+    id: int
 
     @classmethod
     def from_new(
@@ -49,7 +54,6 @@ class Trail:
             for path in paths
         )
 
-
     def remove(
             self,
             *files,
@@ -71,14 +75,6 @@ class Trail:
     ):
         ...
 
-    @property
-    def head(self):
-        return self[0]
-
-    @property
-    def end(self):
-        return self[-1]
-
     def __getitem__(self, item):
         ...
 
@@ -93,12 +89,17 @@ class Trail:
     @cached_property
     def files(self):
         out = Files()
-        out.trail = self
+        out._parent = self
         return out
 
+    @cached_property
+    def changes(self):
+        out = Changes()
+        out._parent = self
+        return out
 
-"""
-trail.head -> trail[0]
-trail.end -> trail[-1]
+    @cached_property
+    def cache(self) -> Path:
+        return platformdirs.user_cache_path('trail') / "cache"
 
-"""
+
