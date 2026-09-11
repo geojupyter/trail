@@ -95,3 +95,15 @@ class Changes(
     @classmethod
     def to_csv(cls, path: str | Path) -> None:
         ...
+
+    def __repr__(self):
+        staged = self.staged
+        unstaged = self.unstaged
+
+        if staged:
+            msg = 'Changes to be committed:\n'
+
+        if unstaged:
+            msg += 'Changes not staged for commit:\n'
+
+

@@ -73,7 +73,7 @@ class Watchdog(Node):
     def consumer(self):
         return asyncio.create_task(self.consume(), name='watchdog-consumer')
 
-    def start(self):
+    async def start(self):
         _ = self.loop, self.queue, self.handler, self.debounce
         consumer = self.consumer
         try:
@@ -116,7 +116,7 @@ class Watchdog(Node):
                 await asyncio.sleep(self.debounce)
 
             stop_queue = False
-            batch = [first]
+            batch: list[Change] = [first]
             while True:
                 try:
                     event = self.queue.get_nowait()
@@ -139,4 +139,3 @@ class Watchdog(Node):
 
             if stop_queue:
                 break
-

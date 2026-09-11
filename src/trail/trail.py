@@ -47,16 +47,20 @@ class Trail(
 
     def add(
             self,
-            *paths,
+            *args,
+            **kwargs
     ):
-        files = (
-            File.from_path(path)
-            for path in paths
-        )
+        paths: Iterable[Path]
+        for path in paths:
+            path = Path(path)
+            file = File.from_path(path)
+            file._parent = self.files
+            file.add()
 
     def remove(
             self,
-            *files,
+            # *files,
+            files,
     ):
         ...
 

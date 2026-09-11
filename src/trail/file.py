@@ -101,14 +101,15 @@ class File(
     Node
 ):
     path: Path
+    _parent: Files
 
     @classmethod
-    def from_file(cls, path: str) -> Self:
+    def from_path(cls, path: Path) -> Self:
         path = Path(path)
-
-    @classmethod
-    def from_json(cls, path: str) -> Self:
-        ...
+        out = cls()
+        out.path = path
+        _ = out.size, out.name, out.mtime, out.id
+        return out
 
     @cached_property
     def name(self):
