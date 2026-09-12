@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import dataclasses
 from functools import cached_property
 from typing import Self
 from uuid import uuid4
+from .commits import Commits
 
 from .changes import Change, Changes
 from .files import File, Files
@@ -15,17 +17,42 @@ from .node import Node
 class JSON(Node):
     _parent: Trail
 
+    @staticmethod
+    def setnested(
+            obj: object,
+            name: str,
+            value: object,
+    ):
+        attrs = name.split('.')
+        for attr in attrs[:-1]:
+            obj = getattr(obj, attr)
+        setattr(obj, attrs[-1], value)
+
     @property
     def dict(self) -> dict:
         trail = self._parent
-        out = {}
+        out = {
+            'id': trail.id,
+        }
         return out
 
-    def write(self):
-        ...
+    def dump(self):
+        path = self.path
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('w') as f:
+            json.dump(self.dict, f)
 
-    def read(self):
-        ...
+    def load(self):
+        path = self.path
+        if path is None or not path.exists():
+            return
+        with path.open('r') as f:
+            data = json.load(f)
+        trail = self._parent
+        for key, value in data.items():
+            self.setnested(trail, key, value)
 
     @property
     def path(self) -> Path | None:
@@ -40,19 +67,21 @@ class Trail(
             self,
             dir: str | Path | None = None,
     ) -> None:
-        self.dir = None if dir is None else Path(dir).expanduser().resolve()
+        super().__init__()
+        if dir is None:
+            # nodir mode
+            self.dir = None
+        else:
+            self.dir = (
+                Path(dir)
+                .expanduser()
+                .resolve()
+            )
+            self.json.load()
 
     @cached_property
     def id(self) -> int:
         return uuid4().int
-
-    @classmethod
-    def from_dir(
-            cls,
-            dir_path: str | Path | None = None,
-    ) -> Self:
-        out = cls(dir_path)
-        return out
 
     def add(
             self,
@@ -141,7 +170,8 @@ class Trail(
         return removed
 
     def commit(
-            self
+            self,
+            message: str | None = None,
     ) -> tuple[Change, ...]:
         """Commit staged records, leaving subsequent unstaged changes alone.
 
@@ -163,18 +193,16 @@ class Trail(
 
     @cached_property
     def files(self):
-        out = Files()
-        out._parent = self
-        return out
+        return Files(self)
 
     @cached_property
     def changes(self):
-        out = Changes()
-        out._parent = self
-        return out
+        return Changes(self)
 
     @cached_property
     def json(self):
-        out = JSON()
-        out._parent = self
-        return out
+        return JSON(self)
+
+    @cached_property
+    def commits(self):
+        return Commits(self)

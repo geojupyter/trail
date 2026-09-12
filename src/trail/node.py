@@ -11,7 +11,15 @@ if TYPE_CHECKING:
     from .files import Files
     from .watchdog import Watchdog, Handler
 
+
 class Node:
+
+    def __init__(
+            self,
+            parent: Node | None = None,
+    ) -> None:
+        self._parent = parent
+
     @cached_property
     def _parent(self) -> Node:
         msg = f'Node {self} has no parent'

@@ -54,9 +54,12 @@ class File(Node):
     @property
     def events(self) -> Changes:
         changes = self._trail.changes
-        out = Changes([change for change in changes if change.file_id == self.id])
-        out._parent = changes
-        return out
+        selected = (
+            change
+            for change in changes
+            if change.file_id == self.id
+        )
+        return Changes(changes, selected)
 
     @property
     def directory(self) -> Path:
@@ -250,9 +253,7 @@ class Files(Node):
 
     @cached_property
     def watchdog(self) -> Watchdog:
-        out = Watchdog()
-        out._parent = self
-        return out
+        return Watchdog(self)
 
     def observing(self, *, debounce: float | None = None):
         """Observe registered resources for the duration of an async context.

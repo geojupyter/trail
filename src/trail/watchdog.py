@@ -52,9 +52,7 @@ class Watchdog(Node):
 
     @cached_property
     def handler(self) -> Handler:
-        out = Handler()
-        out._parent = self
-        return out
+        return Handler(self)
 
     @cached_property
     def observer(self):

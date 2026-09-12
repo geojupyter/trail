@@ -149,8 +149,7 @@ class CSV(
                     raise ValueError(f'Unknown change status: {row["status"]}')
                 change = Change(_parent=self._trail.files, **row)
                 changes[change.id] = change
-        out = Changes(changes.values())
-        out._parent = self._parent
+        out = Changes(self._parent, changes.values())
         out.csv.path = path
         return out
 
@@ -172,6 +171,17 @@ class BaseChanges(UserList[Change], Node):
     _parent: Trail | BaseChanges
     __name__: str
 
+    def __init__(
+            self,
+            parent: Node | Iterable[Change] | None = None,
+            changes: Iterable[Change] = (),
+    ) -> None:
+        if parent is not None and not isinstance(parent, Node):
+            changes = parent
+            parent = None
+        UserList.__init__(self, changes)
+        Node.__init__(self, parent)
+
     def __set_name__(
             self,
             owner: type,
@@ -187,20 +197,18 @@ class BaseChanges(UserList[Change], Node):
         if instance is None:
             return self
         cls = type(self)
-        out = cls(
+        selected = (
             change
             for change in instance
             if change.status == self.__name__
         )
+        out = cls(instance, selected)
         out.__name__ = self.__name__
-        out._parent = instance
         return out
 
     @cached_property
     def csv(self) -> CSV:
-        out = CSV()
-        out._parent = self
-        return out
+        return CSV(self)
 
 
 class Unstaged(BaseChanges):
