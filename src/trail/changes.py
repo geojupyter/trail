@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, UTC
 from functools import cached_property
 from os import fsdecode
+from os.path import relpath
 from typing import get_args, Final, Literal, Self, TYPE_CHECKING
 from uuid import uuid4
 
@@ -237,11 +238,32 @@ class Changes(BaseChanges):
 
     def __repr__(self) -> str:
         sections = []
-        for label, changes in (
-                ('Changes to be committed:', self.staged),
-                ('Changes not staged for commit:', self.unstaged),
+        labels = {
+            'added': 'new file',
+            'created': 'new file',
+            'moved': 'renamed',
+        }
+        for heading, hint, changes in (
+                (
+                    'Changes to be committed:',
+                    '  (use "trail.commit()" to commit staged changes)',
+                    self.staged,
+                ),
+                (
+                    'Changes not staged for commit:',
+                    '  (use "trail.add(<file>, ...)" to update what will be committed)',
+                    self.unstaged,
+                ),
         ):
-            if changes:
-                lines = [f'  {change.event_type}: {change.src_path}' for change in changes]
-                sections.append('\n'.join([label, *lines]))
-        return '\n\n'.join(sections) if sections else 'No changes.'
+            if not changes:
+                continue
+            lines = [heading, hint]
+            for change in changes:
+                label = labels.get(change.event_type, change.event_type) + ':'
+                path = relpath(fsdecode(change.src_path))
+                if change.event_type == 'moved' and change.dest_path:
+                    destination = relpath(fsdecode(change.dest_path))
+                    path = f'{path} -> {destination}'
+                lines.append(f'        {label:<12}{path}')
+            sections.append('\n'.join(lines))
+        return '\n\n'.join(sections) if sections else 'nothing to commit, no pending changes'
