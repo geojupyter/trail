@@ -7,7 +7,7 @@ import dataclasses
 from functools import cached_property
 from typing import Self
 from uuid import uuid4
-from .commits import Commits
+from .commits import Commit, Commits
 
 from .changes import Change, Changes
 from .files import File, Files
@@ -54,10 +54,13 @@ class JSON(Node):
         for key, value in data.items():
             self.setnested(trail, key, value)
 
-    @property
-    def path(self) -> Path | None:
-        directory = self._trail.dir
-        return None if directory is None else directory / 'path.json'
+    @cached_property
+    def path(self):
+        trail = self._trail
+        if trail.dir:
+            return trail.dir / 'path.json'
+        else:
+            return None
 
 
 class Trail(
@@ -179,7 +182,32 @@ class Trail(
         This commits change metadata only; it does not snapshot file contents.
         """
         staged = tuple(self.changes.staged)
-        self.changes.set_status(staged, 'committed')
+        if not staged:
+            return ()
+        commit = Commit(_parent=self.commits, message=message or '')
+        while commit.id in self.commits.id2commit:
+            commit.id = uuid4().int
+        snapshots = [
+            dataclasses.replace(change, status='committed', commit_id=commit.id)
+            for change in staged
+        ]
+        checkpoints = {}
+        if self.dir is not None:
+            for path in (self.commits.csv.path, self.changes.csv.path):
+                checkpoints[path] = path.stat().st_size if path.exists() else None
+        try:
+            if self.dir is not None:
+                self.commits.csv.append([commit])
+            self.changes.record(snapshots)
+        except BaseException:
+            for path, size in checkpoints.items():
+                if size is None:
+                    path.unlink(missing_ok=True)
+                elif path.exists() and path.stat().st_size != size:
+                    with path.open('r+b') as stream:
+                        stream.truncate(size)
+            raise
+        self.commits.id2commit[commit.id] = commit
         return staged
 
     def push(

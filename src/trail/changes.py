@@ -34,6 +34,7 @@ class Change(Node):
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: ChangeStatus = 'unstaged'
     file_id: int | None = None
+    commit_id: int | None = None
     _parent: Node = field(kw_only=True, repr=False, compare=False, metadata={'csv': False})
 
     def tracked(self) -> Self | None:
@@ -62,17 +63,13 @@ class CSV(
         if field.metadata.get('csv', True)
     ]
 
-    @property
-    def path(self) -> Path | None:
-        if '_path' in self.__dict__:
-            return self._path
-        directory = self._trail.dir
-        name = self._parent.__name__
-        return None if directory is None else directory / 'changes.csv'
-
-    @path.setter
-    def path(self, path: str | Path | None) -> None:
-        self._path = None if path is None else Path(path).expanduser().resolve()
+    @cached_property
+    def path(self):
+        trail = self._trail
+        if trail.dir:
+            return trail.dir / 'changes.csv'
+        else:
+            return None
 
     def change2row(self, change: Change) -> dict:
         """Return a dictionary representation of a Change suitable for CSV writing."""
@@ -139,7 +136,8 @@ class CSV(
                 row.update(
                     id=int(row['id']),
                     timestamp=datetime.fromisoformat(row['timestamp']),
-                    file_id=int(row['file_id']) if row.get('file_id') else None
+                    file_id=int(row['file_id']) if row.get('file_id') else None,
+                    commit_id=int(row['commit_id']) if row.get('commit_id') else None,
                 )
                 for name in ('is_directory', 'is_synthetic'):
                     value = row[name].lower()
