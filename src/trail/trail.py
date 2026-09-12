@@ -134,7 +134,8 @@ class Trail(
         Files remain on disk; this operation is analogous to git rm --cached.
         """
         keys = (
-            value.id if isinstance(value, File) else value
+            value.id if isinstance(value, File)
+            else value
             for value in files
             if not isinstance(value, File) or self.files.id2file.get(value.id) is value
         )

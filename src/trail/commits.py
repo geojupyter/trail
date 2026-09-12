@@ -41,6 +41,18 @@ class Commit(Node):
     def id(self) -> int:
         return uuid4().int
 
+class CSV(
+    Node
+):
+    """Nested-namespace to encapsulate CSV-related functionality for changes."""
+    _parent: Commit
+
+    @property
+    def path(self) -> Path | None:
+        if '_path' in self.__dict__:
+            return self._path
+        directory = self._trail.dir
+        return None if directory is None else directory / 'changes.csv'
 
 
 class Commits(Node):

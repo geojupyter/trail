@@ -67,6 +67,7 @@ class CSV(
         if '_path' in self.__dict__:
             return self._path
         directory = self._trail.dir
+        name = self._parent.__name__
         return None if directory is None else directory / 'changes.csv'
 
     @path.setter
