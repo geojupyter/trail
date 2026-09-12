@@ -55,7 +55,7 @@ class Trail(
         """Track new files and stage pending changes to already tracked files."""
         previous_ids = {
             file.id for path in paths
-            if (file := self.files.by_path(path)) is not None
+            if (file := self.files.get(path)) is not None
         }
         files = self.files.add(*paths)
         new_files = [
@@ -65,6 +65,7 @@ class Trail(
         ]
         added = [
             Change(
+                _parent=self.files,
                 src_path=str(file.path),
                 event_type='added',
                 file_id=file.id,
@@ -117,6 +118,7 @@ class Trail(
         ]
         removals = [
             Change(
+                _parent=self.files,
                 src_path=str(file.path),
                 event_type='removed',
                 file_id=file.id,

@@ -5,12 +5,12 @@ from pathlib import Path
 
 import csv
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, UTC
 from functools import cached_property
-from typing import get_args, Literal, Self, TYPE_CHECKING
+from os import fsdecode
+from typing import get_args, Final, Literal, Self, TYPE_CHECKING
 from uuid import uuid4
-from watchdog.events import FileSystemEvent
 
 from .node import Node
 
@@ -18,34 +18,59 @@ if TYPE_CHECKING:
     from .trail import Trail
 
 ChangeStatus = Literal['unstaged', 'staged', 'committed']
+EVENT_TYPES: Final = {"created", "modified", "deleted", "moved"}
 
 
-@dataclass(slots=True)
-class Change(
-    FileSystemEvent,
-):
+@dataclass
+class Change(Node):
     """One logical change to a registered file."""
-    event_type: str = ''
+    src_path: bytes | str
+    dest_path: bytes | str = ""
+    event_type: str = ""
     is_directory: bool = False
+    is_synthetic: bool = False
     id: int = field(default_factory=lambda: uuid4().int)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: ChangeStatus = 'unstaged'
     file_id: int | None = None
+    _parent: Node = field(kw_only=True, repr=False, compare=False, metadata={'csv': False})
 
+    def tracked(self) -> Self | None:
+        if self.is_directory or self.event_type not in EVENT_TYPES:
+            return None
+        source = Path(fsdecode(self.src_path)).expanduser().resolve()
+        file = self._files.get(source)
+        if file is None:
+            return None
+        self.src_path = str(source)
+        self.file_id = file.id
+        if self.event_type == "moved" and self.dest_path:
+            destination = Path(fsdecode(self.dest_path)).expanduser().resolve()
+            self.dest_path = str(destination)
+            file.move(destination)
+        return self
 
 class CSV(
     Node
 ):
     """Nested-namespace to encapsulate CSV-related functionality for changes."""
     _parent: BaseChanges
+    fieldnames = [
+        field.name
+        for field in fields(Change)
+        if field.metadata.get('csv', True)
+    ]
 
     @cached_property
     def path(self) -> Path:
         return self._trail.cache / 'changes.csv'
 
-    @staticmethod
-    def _row(change: Change) -> dict:
-        row = asdict(change)
+    def _row(self, change: Change) -> dict:
+        """Return a dictionary representation of a Change suitable for CSV writing."""
+        row = {
+            name: getattr(change, name)
+            for name in self.fieldnames
+        }
         row['timestamp'] = change.timestamp.isoformat()
         return row
 
@@ -55,7 +80,7 @@ class CSV(
         if not batch:
             return
         path = self.path
-        fieldnames = [field.name for field in fields(Change)]
+        fieldnames = self.fieldnames
         if path.exists() and path.stat().st_size:
             with path.open(encoding='utf-8', newline='') as file:
                 if next(csv.reader(file), None) != fieldnames:
@@ -88,8 +113,8 @@ class CSV(
             if original is None:
                 owner.append(change)
             else:
-                for field in fields(Change):
-                    setattr(original, field.name, getattr(change, field.name))
+                for name in self.fieldnames:
+                    setattr(original, name, getattr(change, name))
 
     def read(self, path: str | Path | None = None) -> Changes:
         """Read a separate change log using the latest snapshot for each ID."""
@@ -107,7 +132,7 @@ class CSV(
                     row[name] = value in ('true', '1')
                 if row['status'] not in get_args(ChangeStatus):
                     raise ValueError(f'Unknown change status: {row["status"]}')
-                change = Change(**row)
+                change = Change(_parent=self._trail.files, **row)
                 changes[change.id] = change
         out = Changes(changes.values())
         out._parent = self._parent
@@ -119,7 +144,7 @@ class CSV(
         path = self.path if path is None else Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=[field.name for field in fields(Change)])
+            writer = csv.DictWriter(file, fieldnames=self.fieldnames)
             writer.writeheader()
             writer.writerows(self._row(change) for change in self._parent)
 

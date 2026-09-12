@@ -5,9 +5,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from functools import cached_property
-from os import fsdecode
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Self, Optional
+from typing import TYPE_CHECKING, Final, Self
 
 from watchdog.events import (
     FileCreatedEvent,
@@ -20,14 +19,13 @@ from watchdog.events import (
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
-from .changes import Change
+from .changes import Change, EVENT_TYPES
 from .node import Node
 
 if TYPE_CHECKING:
     from .files import Files
 
 STOP: Final = object()
-EVENT_TYPES: Final = {"created", "modified", "deleted", "moved"}
 
 
 class Handler(FileSystemEventHandler, Node):
@@ -40,7 +38,7 @@ class Handler(FileSystemEventHandler, Node):
         ):
             return
         watchdog = self._parent
-        change = Change(**asdict(event))
+        change = Change(_parent=watchdog, **asdict(event))
         watchdog.loop.call_soon_threadsafe(watchdog.queue.put_nowait, change)
 
 
@@ -117,9 +115,6 @@ class Watchdog(Node):
             raise
 
     async def stop(self) -> None:
-        consumer = self.__dict__.get("consumer")
-        if consumer is None:
-            return
         observer = self.observer
         observer.stop()
         if observer.is_alive():
@@ -130,7 +125,7 @@ class Watchdog(Node):
         await asyncio.sleep(0)
         self.queue.put_nowait(STOP)
         try:
-            await consumer
+            await self.consumer
         finally:
             self.clear()
 
@@ -152,24 +147,6 @@ class Watchdog(Node):
         for name in ("loop", "queue", "handler", "consumer", "observer", "watches"):
             self.__dict__.pop(name, None)
 
-    def _tracked(self, change: Change) -> Optional[Change]:
-        if (
-                change.is_directory
-                or change.event_type not in EVENT_TYPES
-        ):
-            return None
-        source = Path(fsdecode(change.src_path)).expanduser().resolve()
-        file = self._files.by_path(source)
-        if file is None:
-            return None
-        change.src_path = str(source)
-        change.file_id = file.id
-        if change.event_type == "moved" and change.dest_path:
-            destination = Path(fsdecode(change.dest_path)).expanduser().resolve()
-            change.dest_path = str(destination)
-            file.move(destination)
-        return change
-
     async def consume(self) -> None:
         while True:
             first = await self.queue.get()
@@ -190,12 +167,10 @@ class Watchdog(Node):
                     break
                 batch.append(event)
 
-            tracked = []
-            for event in batch:
-                change = self._tracked(event)
-                if change is not None:
-                    tracked.append(change)
-            if tracked:
-                self._trail.changes.record(tracked)
+            self._trail.changes.record(
+                tracked
+                for change in batch
+                if (tracked := change.tracked()) is not None
+            )
             if stopped:
                 return

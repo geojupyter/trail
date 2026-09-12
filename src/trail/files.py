@@ -225,9 +225,6 @@ class Files(Node):
     def items(self):
         return self.id2file.items()
 
-    def by_path(self, path: str | Path) -> File | None:
-        return self.path2file.get(Path(path).expanduser().resolve())
-
     def add(self, *paths: str | Path) -> tuple[File, ...]:
         """Register each distinct path once, validating the batch first."""
         selected: dict[Path, File] = {}
