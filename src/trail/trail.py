@@ -17,14 +17,17 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from uuid import uuid4
 from .files import Files
-from .file import File
+from .files import File
 from .changes import Changes
+from .changes import Change
 
 
 class Trail(
     Node
 ):
-    id: int
+    @cached_property
+    def id(self) -> int:
+        return uuid4().int
 
     @classmethod
     def from_new(
@@ -47,27 +50,98 @@ class Trail(
 
     def add(
             self,
-            *args,
-            **kwargs
-    ):
-        paths: Iterable[Path]
-        for path in paths:
-            path = Path(path)
-            file = File.from_path(path)
-            file._parent = self.files
-            file.add()
+            *paths: str | Path,
+    ) -> tuple[File, ...]:
+        """Track new files and stage pending changes to already tracked files."""
+        previous_ids = {
+            file.id for path in paths
+            if (file := self.files.by_path(path)) is not None
+        }
+        files = self.files.add(*paths)
+        new_files = [
+            file
+            for file in files
+            if file.id not in previous_ids
+        ]
+        added = [
+            Change(
+                src_path=str(file.path),
+                event_type='added',
+                file_id=file.id,
+                status='staged'
+            )
+            for file in new_files
+        ]
+        ids = {file.id for file in files}
+        staged = [
+            dataclasses.replace(change, status='staged')
+            for change in self.changes.unstaged
+            if change.file_id in ids
+        ]
+        try:
+            self.changes.record([*added, *staged])
+        except Exception:
+            ids = (
+                file.id
+                for file in new_files
+            )
+            del self.files[ids]
+            raise
+        return files
 
     def remove(
             self,
-            # *files,
-            files,
-    ):
-        ...
+            *files: str | Path | File | int,
+    ) -> tuple[File, ...]:
+        """Stop tracking files, staging their pending changes and removal.
+
+        Files remain on disk; this operation is analogous to git rm --cached.
+        """
+        keys = (
+            value.id if isinstance(value, File) else value
+            for value in files
+            if not isinstance(value, File) or self.files.id2file.get(value.id) is value
+        )
+        selected = {
+            file.id: file
+            for key in keys
+            if (file := self.files.get(key)) is not None
+        }
+        removed = tuple(selected.values())
+        ids = set(selected)
+        del self.files[ids]
+        staged = [
+            dataclasses.replace(change, status='staged')
+            for change in self.changes.unstaged
+            if change.file_id in ids
+        ]
+        removals = [
+            Change(
+                src_path=str(file.path),
+                event_type='removed',
+                file_id=file.id,
+                status='staged'
+            )
+            for file in removed
+        ]
+        try:
+            self.changes.record([*staged, *removals])
+        except Exception:
+            for file in removed:
+                self.files[file.id] = file
+            raise
+        return removed
 
     def commit(
             self
-    ):
-        ...
+    ) -> tuple[Change, ...]:
+        """Commit staged records, leaving subsequent unstaged changes alone.
+
+        This commits change metadata only; it does not snapshot file contents.
+        """
+        staged = tuple(self.changes.staged)
+        self.changes.set_status(staged, 'committed')
+        return staged
 
     def push(
             self,
@@ -104,6 +178,4 @@ class Trail(
 
     @cached_property
     def cache(self) -> Path:
-        return platformdirs.user_cache_path('trail') / "cache"
-
-
+        return platformdirs.user_cache_path('trail') / 'cache' / str(self.id)
