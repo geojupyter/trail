@@ -62,11 +62,18 @@ class CSV(
         if field.metadata.get('csv', True)
     ]
 
-    @cached_property
-    def path(self) -> Path:
-        return self._trail.cache / 'changes.csv'
+    @property
+    def path(self) -> Path | None:
+        if '_path' in self.__dict__:
+            return self._path
+        directory = self._trail.dir
+        return None if directory is None else directory / 'changes.csv'
 
-    def _row(self, change: Change) -> dict:
+    @path.setter
+    def path(self, path: str | Path | None) -> None:
+        self._path = None if path is None else Path(path).expanduser().resolve()
+
+    def change2row(self, change: Change) -> dict:
         """Return a dictionary representation of a Change suitable for CSV writing."""
         row = {
             name: getattr(change, name)
@@ -81,6 +88,8 @@ class CSV(
         if not batch:
             return
         path = self.path
+        if path is None:
+            return
         fieldnames = self.fieldnames
         if path.exists() and path.stat().st_size:
             with path.open(encoding='utf-8', newline='') as file:
@@ -91,7 +100,7 @@ class CSV(
             writer = csv.DictWriter(file, fieldnames=fieldnames)
             if file.tell() == 0:
                 writer.writeheader()
-            writer.writerows(self._row(change) for change in batch)
+            writer.writerows(self.change2row(change) for change in batch)
 
     def record(self, changes: Iterable[Change]) -> None:
         """Persist new or revised snapshots, preserving existing object identity."""
@@ -108,7 +117,8 @@ class CSV(
             if original is not None and original.file_id != change.file_id:
                 raise ValueError(f'Cannot change the tracked file for change {change.id}')
             ids.add(change.id)
-        self.append(batch)
+        if self._trail.dir is not None:
+            self.append(batch)
         for change in batch:
             original = existing.get(change.id)
             if original is None:
@@ -120,12 +130,16 @@ class CSV(
     def read(self, path: str | Path | None = None) -> Changes:
         """Read a separate change log using the latest snapshot for each ID."""
         path = self.path if path is None else Path(path)
+        if path is None:
+            raise ValueError('Pass a CSV path or configure Trail.dir to read a change log')
         changes: dict[int, Change] = {}
         with path.open(encoding='utf-8', newline='') as file:
             for row in csv.DictReader(file):
-                row['id'] = int(row['id'])
-                row['timestamp'] = datetime.fromisoformat(row['timestamp'])
-                row['file_id'] = int(row['file_id']) if row.get('file_id') else None
+                row.update(
+                    id=int(row['id']),
+                    timestamp=datetime.fromisoformat(row['timestamp']),
+                    file_id=int(row['file_id']) if row.get('file_id') else None
+                )
                 for name in ('is_directory', 'is_synthetic'):
                     value = row[name].lower()
                     if value not in ('true', 'false', '1', '0'):
@@ -143,11 +157,13 @@ class CSV(
     def write(self, path: str | Path | None = None) -> None:
         """Export the owning collection as a snapshot, replacing the target CSV."""
         path = self.path if path is None else Path(path)
+        if path is None:
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=self.fieldnames)
             writer.writeheader()
-            writer.writerows(self._row(change) for change in self._parent)
+            writer.writerows(self.change2row(change) for change in self._parent)
 
 
 class BaseChanges(UserList[Change], Node):

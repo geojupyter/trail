@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import dataclasses
-import platformdirs
 from functools import cached_property
 from typing import Self
 from uuid import uuid4
@@ -13,31 +12,47 @@ from .files import File, Files
 from .node import Node
 
 
+class JSON(Node):
+    _parent: Trail
+
+    @property
+    def dict(self) -> dict:
+        trail = self._parent
+        out = {}
+        return out
+
+    def write(self):
+        ...
+
+    def read(self):
+        ...
+
+    @property
+    def path(self) -> Path | None:
+        directory = self._trail.dir
+        return None if directory is None else directory / 'path.json'
+
+
 class Trail(
     Node
 ):
+    def __init__(
+            self,
+            dir: str | Path | None = None,
+    ) -> None:
+        self.dir = None if dir is None else Path(dir).expanduser().resolve()
+
     @cached_property
     def id(self) -> int:
         return uuid4().int
 
     @classmethod
-    def from_new(
+    def from_dir(
             cls,
-    ):
-        ...
-
-    @classmethod
-    def from_json(
-            cls,
-            path: str
+            dir_path: str | Path | None = None,
     ) -> Self:
-        ...
-
-    def to_json(
-            self,
-            path: str
-    ) -> None:
-        ...
+        out = cls(dir_path)
+        return out
 
     def add(
             self,
@@ -146,14 +161,6 @@ class Trail(
     ):
         ...
 
-    @property
-    def as_json(self) -> dict:
-        data = {
-            'files': {
-                ...
-            }
-        }
-
     @cached_property
     def files(self):
         out = Files()
@@ -167,5 +174,7 @@ class Trail(
         return out
 
     @cached_property
-    def cache(self) -> Path:
-        return platformdirs.user_cache_path('trail') / 'cache' / str(self.id)
+    def json(self):
+        out = JSON()
+        out._parent = self
+        return out

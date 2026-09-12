@@ -46,6 +46,10 @@ class Watchdog(Node):
     _parent: Files
     debounce = 0.1
 
+    @classmethod
+    def from_path(cls, path: Path | str) -> Self:
+        """Metadata lives in path"""
+
     @cached_property
     def handler(self) -> Handler:
         out = Handler()
