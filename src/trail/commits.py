@@ -20,6 +20,7 @@ class Commit(Node):
     id: int = field(default_factory=lambda: uuid4().int, kw_only=True)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC), kw_only=True)
     message: str = ''
+    author: str | None = None
     _parent: Commits = field(
         kw_only=True,
         repr=False,
@@ -108,6 +109,7 @@ class CSV(Node):
                     id=int(row['id']),
                     timestamp=datetime.fromisoformat(row['timestamp']),
                     message=row['message'],
+                    author=row['author'] or None,
                     _parent=out,
                 )
                 out.id2commit[commit.id] = commit
@@ -142,3 +144,27 @@ class Commits(Node):
 
     def record(self, commits: Iterable[Commit]) -> None:
         return self.csv.record(commits)
+
+    def __repr__(self) -> str:
+        if not self.id2commit:
+            return 'No commits.'
+        logs = []
+        commits = sorted(
+            self.id2commit.values(),
+            key=lambda commit: commit.timestamp,
+            reverse=True,
+        )
+        for commit in commits:
+            lines = [f'commit {commit.id:032x}']
+            if commit.author is not None:
+                lines.append(f'Author: {commit.author}')
+            date = commit.timestamp.strftime('%a %b ')
+            date += f'{commit.timestamp.day:2d}'
+            date += commit.timestamp.strftime(' %H:%M:%S %Y %z')
+            lines.extend((f'Date:   {date}', ''))
+            lines.extend(
+                f'    {line}' if line else ''
+                for line in commit.message.splitlines()
+            )
+            logs.append('\n'.join(lines).rstrip())
+        return '\n\n'.join(logs)

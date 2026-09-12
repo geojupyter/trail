@@ -176,6 +176,7 @@ class Trail(
     def commit(
             self,
             message: str | None = None,
+            author: str | None = None,
     ) -> tuple[Change, ...]:
         """Commit staged records, leaving subsequent unstaged changes alone.
 
@@ -184,7 +185,7 @@ class Trail(
         staged = tuple(self.changes.staged)
         if not staged:
             return ()
-        commit = Commit(_parent=self.commits, message=message or '')
+        commit = Commit(_parent=self.commits, message=message or '', author=author)
         while commit.id in self.commits.id2commit:
             commit.id = uuid4().int
         snapshots = [
