@@ -27,7 +27,7 @@ from .changes import Change, EVENT_TYPES
 from .node import Node
 
 if TYPE_CHECKING:
-    from .files import Files
+    from .file import Files
 
 STOP: Final = object()
 

@@ -11,8 +11,8 @@ from uuid import uuid4
 from .commits import Commit, Commits
 
 from .changes import Change, Changes, ChangeStatus
-from .dirs import Dir, Dirs
-from .files import File, Files
+from .dir import Dir, Dirs
+from .file import File, Files
 from .node import Node
 
 

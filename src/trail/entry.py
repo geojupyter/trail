@@ -14,8 +14,8 @@ from .watchdog import Watchdog
 
 if TYPE_CHECKING:
     from .trail import Trail
-    from .files import File
-    from .dirs import Dir
+    from .file import File
+    from .dir import Dir
 
 FileKey = str | Path | int
 

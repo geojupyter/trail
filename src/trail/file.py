@@ -11,7 +11,7 @@ from .changes import Changes
 from .node import Node
 
 from .watchdog import Watchdog
-from .entries import Entries, Entry
+from .entry import Entries, Entry
 
 if TYPE_CHECKING:
     from .trail import Trail
