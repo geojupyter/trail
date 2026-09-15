@@ -7,14 +7,15 @@ import dataclasses
 from functools import cached_property
 from typing import Self
 from uuid import uuid4
-from .commits import Commit, Commits
+from ._commits import Commit, Commits
 
-from .changes import Change, Changes
+from ._changes import Change, Changes
 from .dir import Dir, Dirs
 from .file import File, Files
 from .entry import Entry
 from .node import Node
 from .watchdog import Watchdog
+from .event import Events
 
 
 class JSON(Node):
@@ -83,6 +84,10 @@ class Trail(
     def commits(self):
         return Commits(self)
 
+    @cached_property
+    def events(self):
+        return Events(self)
+
     def __init__(
             self,
             dir: str | Path | None = None,
@@ -92,11 +97,13 @@ class Trail(
             # nodir mode
             self.dir = None
         else:
-            self.dir = (
+            dir = (
                 Path(dir)
                 .expanduser()
                 .resolve()
             )
+            if not dir.name == '.trail':
+                dir /= '.trail'
             self.json.load()
 
     @cached_property
@@ -123,8 +130,8 @@ class Trail(
                     root = self.files.get(path)
                 else:
                     root = (
-                        self.dirs.get(path)
-                        or self.files.get(path)
+                            self.dirs.get(path)
+                            or self.files.get(path)
                     )
                 if root is None:
                     root = Entry.from_path(path, trail=self)
@@ -138,8 +145,8 @@ class Trail(
         if roots:
             for entry in (*self.dirs.id2entry.values(), *self.files.id2entry.values()):
                 if any(
-                    entry.path.is_relative_to(root)
-                    for root in roots
+                        entry.path.is_relative_to(root)
+                        for root in roots
                 ):
                     selected.setdefault(entry.path, entry)
 
@@ -154,8 +161,8 @@ class Trail(
                     entry.add()
                     continue
                 while (
-                    entry.id in self.files
-                    or entry.id in self.dirs
+                        entry.id in self.files
+                        or entry.id in self.dirs
                 ):
                     del entry.id
                 entry.add()
@@ -203,8 +210,8 @@ class Trail(
                     resource = None
             else:
                 resource = (
-                    self.dirs.get(value)
-                    or self.files.get(value)
+                        self.dirs.get(value)
+                        or self.files.get(value)
                 )
             if resource is None:
                 continue
@@ -283,4 +290,3 @@ class Trail(
             self
     ):
         ...
-

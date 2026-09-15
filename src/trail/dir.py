@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Self
 
 from .entry import Entries, Entry
-from .changes import Change, Changes, ChangeStatus
+from ._changes import Change, Changes, ChangeStatus
 
 
 class Dir(Entry):

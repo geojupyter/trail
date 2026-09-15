@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .trail import Trail
-    from .changes import Changes
+    from ._changes import Changes
     from .file import File
-    from .changes import Change
+    from ._changes import Change
     from .file import Files
     from .watchdog import Watchdog, Handler
 
@@ -27,7 +27,7 @@ class Node:
 
     @cached_property
     def _event(self) -> Change:
-        from .changes import Change
+        from ._changes import Change
         parent = self._parent
         if isinstance(parent, Change):
             return parent
@@ -62,7 +62,7 @@ class Node:
 
     @cached_property
     def _events(self) -> Changes:
-        from .changes import Changes
+        from ._changes import Changes
         parent = self._parent
         if isinstance(parent, Changes):
             return parent

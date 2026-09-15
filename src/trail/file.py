@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Self, TYPE_CHECKING
 
 from .entry import Entries, Entry
-from .changes import Change, Changes, ChangeStatus
+from ._changes import Change, Changes, ChangeStatus
 
 if TYPE_CHECKING:
     from .trail import Trail

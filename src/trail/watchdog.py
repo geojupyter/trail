@@ -23,7 +23,7 @@ from watchdog.events import (
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
-from .changes import Change, EVENT_TYPES
+from ._changes import Change, EVENT_TYPES
 from .entry import Entry
 from .node import Node
 
@@ -78,7 +78,7 @@ class Watchdog(Node):
 
     @cached_property
     def consumer(self) -> asyncio.Task[None]:
-        return asyncio.create_task(self.consume(), name="watchdog-consumer")
+        return asyncio.create_task(self.apply(), name="watchdog-consumer")
 
     def watch(self, directory: Path) -> None:
         if (
@@ -183,7 +183,7 @@ class Watchdog(Node):
             with suppress(AttributeError):
                 delattr(self, name)
 
-    async def consume(self) -> None:
+    async def apply(self) -> None:
         while True:
             first = await self.queue.get()
             if first is STOP:
@@ -205,12 +205,12 @@ class Watchdog(Node):
 
             trail = self._trail
             tracked = []
-            for change in batch:
-                if change.tracked() is None:
+            for event in batch:
+                if event.tracked() is None:
                     continue
-                tracked.append(change)
-                if change.is_directory and change.event_type in ('created', 'moved'):
-                    path = Path(change.dest_path or change.src_path)
+                tracked.append(event)
+                if event.is_directory and event.event_type in ('created', 'moved'):
+                    path = Path(event.dest_path or event.src_path)
                     # if path.is_dir() and not trail._ignored(path):
                     if (
                         path.is_dir()
@@ -235,8 +235,8 @@ class Watchdog(Node):
                                 resource.remove()
                             raise
                         for resource in added:
-                            discovered = resource.change('created', is_synthetic=True)
+                            discovered = resource.event('created', is_synthetic=True)
                             tracked.append(discovered)
-            trail.changes.record(tracked)
+            trail.events.record(tracked)
             if stopped:
                 return
