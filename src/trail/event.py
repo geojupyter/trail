@@ -67,6 +67,18 @@ class JSONL(
         else:
             return None
 
+    def read(self):
+        events = self._parent
+        events.clear()
+
+    def write(self):
+        events = self._parent
+        for event in events:
+            ...
+
+    def append(self):
+        # todo: compare length of self to length of jsonl file and only append new events
+        events = self._parent
 
 class EventDict(
     UserDict[int, Event],
@@ -77,22 +89,6 @@ class EventDict(
     @cached_property
     def jsonl(self):
         return JSONL(self)
-
-    def read_jsonl(self, path: Path = None):
-        self.clear()
-        if path is None:
-            path = self.jsonl.path
-
-    def write_jsonl(self, path: Path = None):
-        if path is None:
-            path = self.jsonl.path
-        for event in self:
-            cls = event.__class__.__name__
-
-    def append_jsonl(self, path: Path = None):
-        # todo: compare length of self to length of jsonl file and only append new events
-        if path is None:
-            path = self.jsonl.path
 
     def __set_name__(
             self,
@@ -114,16 +110,25 @@ class EventDict(
             return cache[key]
         out = self.__class__()
         out._parent = instance
-        out.read_jsonl()
+        out.jsonl.read()
         cache[key] = out
         return out
+
+
+class Unstaged(EventDict):
+    def stage(self):
+        ...
+
+class Staged(EventDict):
+    def commit(self):
+        ...
 
 
 class Events(
     Node
 ):
-    unstaged = EventDict()
-    staged = EventDict()
+    unstaged = Unstaged()
+    staged = Staged()
     committed = EventDict()
 
 """
