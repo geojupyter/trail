@@ -28,7 +28,7 @@ from .entry import Entry
 from .node import Node
 
 if TYPE_CHECKING:
-    from .file import Files
+    from .trail import Trail
 
 STOP: Final = object()
 
@@ -45,7 +45,7 @@ class Handler(FileSystemEventHandler, Node):
 
 
 class Watchdog(Node):
-    _parent: Files
+    _parent: Trail
     _consumer: asyncio.Task[None] | None = None
     debounce = 0.1
 

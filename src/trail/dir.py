@@ -72,7 +72,7 @@ class Dir(Entry):
             for file in files.id2entry.values()
             if file.path.is_relative_to(source)
         ]
-        watchdog = files.watchdog
+        watchdog = self._watchdog
         retained: list[tuple[Path, int]] = []
         try:
             for directory, previous, target in directories:

@@ -14,6 +14,7 @@ from .dir import Dir, Dirs
 from .file import File, Files
 from .entry import Entry
 from .node import Node
+from .watchdog import Watchdog
 
 
 class JSON(Node):
@@ -57,6 +58,31 @@ class JSON(Node):
 class Trail(
     Node
 ):
+
+    @cached_property
+    def watchdog(self):
+        return Watchdog(self)
+
+    @cached_property
+    def files(self):
+        return Files(self)
+
+    @cached_property
+    def dirs(self):
+        return Dirs(self)
+
+    @cached_property
+    def changes(self):
+        return Changes(self)
+
+    @cached_property
+    def json(self):
+        return JSON(self)
+
+    @cached_property
+    def commits(self):
+        return Commits(self)
+
     def __init__(
             self,
             dir: str | Path | None = None,
@@ -240,22 +266,3 @@ class Trail(
     ):
         ...
 
-    @cached_property
-    def files(self) -> Files:
-        return Files(self)
-
-    @cached_property
-    def dirs(self) -> Dirs:
-        return Dirs(self)
-
-    @cached_property
-    def changes(self):
-        return Changes(self)
-
-    @cached_property
-    def json(self):
-        return JSON(self)
-
-    @cached_property
-    def commits(self):
-        return Commits(self)

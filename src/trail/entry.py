@@ -12,7 +12,6 @@ from .node import Node
 
 if TYPE_CHECKING:
     from .trail import Trail
-    from .watchdog import Watchdog
 
 EntryKey = str | Path | int
 
@@ -50,6 +49,8 @@ class Entry(Node):
         _ = out.id
         if trail is not None:
             out._trail = trail
+            # let the subclass resolve its parent from the trail
+            del out._parent
         return out
 
     @property
@@ -178,14 +179,6 @@ class Entries[E: Entry](Node):
     @cached_property
     def id2entry(self) -> dict[int, E]:
         return {}
-
-    @property
-    def watchdog(self) -> Watchdog:
-        return self._trail.files.watchdog
-
-    @property
-    def _watchdog(self) -> Watchdog:
-        return self.watchdog
 
     @overload
     def __getitem__(self, key: EntryKey) -> E: ...

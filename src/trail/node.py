@@ -44,7 +44,10 @@ class Node:
     @cached_property
     def _files(self) -> Files:
         from .file import Files
+        from .trail import Trail
         parent = self._parent
+        if isinstance(parent, Trail):
+            return parent.files
         if isinstance(parent, Files):
             return parent
         return parent._files
@@ -67,8 +70,11 @@ class Node:
 
     @cached_property
     def _watchdog(self) -> Watchdog:
+        from .trail import Trail
         from .watchdog import Watchdog
         parent = self._parent
+        if isinstance(parent, Trail):
+            return parent.watchdog
         if isinstance(parent, Watchdog):
             return parent
         return parent._watchdog
@@ -91,4 +97,3 @@ class Node:
         for attr in attrs[:-1]:
             obj = getattr(obj, attr)
         setattr(obj, attrs[-1], value)
-

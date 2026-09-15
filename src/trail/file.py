@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Self, TYPE_CHECKING
 
 from .entry import Entries, Entry
-from .watchdog import Watchdog
 
 if TYPE_CHECKING:
     from .trail import Trail
@@ -54,9 +53,3 @@ class File(Entry):
 
 class Files(Entries[File]):
     entry_type = File
-    _parent: Trail
-
-    @cached_property
-    def watchdog(self) -> Watchdog:
-        return Watchdog(self)
-

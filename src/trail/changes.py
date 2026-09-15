@@ -74,7 +74,7 @@ class Change(Node):
         if self.is_directory:
             self.dir_id = resource.id
             if self.event_type == 'deleted':
-                trail.files.watchdog.invalidate(source)
+                trail.watchdog.invalidate(source)
         else:
             self.file_id = resource.id
         if destination is not None and resource.path != destination:
