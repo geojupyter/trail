@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 
+from collections.abc import Iterable
 from pathlib import Path
 
 import dataclasses
@@ -9,7 +10,8 @@ from typing import Self
 from uuid import uuid4
 from .commits import Commit, Commits
 
-from .changes import Change, Changes
+from .changes import Change, Changes, ChangeStatus
+from .dirs import Dir, Dirs
 from .files import File, Files
 from .node import Node
 
@@ -89,87 +91,160 @@ class Trail(
     def add(
             self,
             *paths: str | Path,
-    ) -> tuple[File, ...]:
-        """Track new files and stage pending changes to already tracked files."""
-        previous_ids = {
-            file.id for path in paths
-            if (file := self.files.get(path)) is not None
-        }
-        files = self.files.add(*paths)
-        new_files = [
-            file
-            for file in files
-            if file.id not in previous_ids
+    ) -> tuple[File | Dir, ...]:
+        selected = self._collect(*paths)
+        requested = dict.fromkeys(
+            Path(path).expanduser().resolve()
+            for path in paths
+        )
+        roots = [
+            path
+            for path in requested
+            if isinstance(selected[path], Dir)
         ]
+        if roots:
+            for resource in (*self.dirs.id2dir.values(), *self.files.id2file.values()):
+                if any(
+                    resource.path.is_relative_to(root)
+                    for root in roots
+                ):
+                    selected.setdefault(resource.path, resource)
+        registered = self._register(selected.values())
         added = [
-            Change(
-                _parent=self.files,
-                src_path=str(file.path),
-                event_type='added',
-                file_id=file.id,
-                status='staged'
-            )
-            for file in new_files
+            self._change(resource, 'added', 'staged')
+            for resource in registered
         ]
-        ids = {file.id for file in files}
+        ids = {
+            resource.id
+            for resource in selected.values()
+        }
         staged = [
             dataclasses.replace(change, status='staged')
             for change in self.changes.unstaged
-            if change.file_id in ids
+            if change.file_id in ids or change.dir_id in ids
         ]
         try:
             self.changes.record([*added, *staged])
         except Exception:
-            ids = (
-                file.id
-                for file in new_files
-            )
-            del self.files[ids]
+            for resource in reversed(registered):
+                del resource._parent[resource.id]
             raise
-        return files
+        return tuple(
+            selected[path]
+            for path in requested
+        )
+
+    def _ignored(self, path: Path) -> bool:
+        return self.dir is not None and path.is_relative_to(self.dir)
+
+    def _collect(self, *paths: str | Path) -> dict[Path, File | Dir]:
+        selected: dict[Path, File | Dir] = {}
+        pending = []
+        for path in paths:
+            resolved = Path(path).expanduser().resolve()
+            if self._ignored(resolved):
+                raise ValueError(f'Cannot track Trail metadata: {resolved}')
+            pending.append(resolved)
+        pending.reverse()
+        while pending:
+            path = pending.pop()
+            if path in selected:
+                continue
+            if path.is_dir():
+                resource = self.dirs.get(path) or Dir.from_path(path)
+            elif path.is_file():
+                resource = self.files.get(path) or File.from_path(path)
+            else:
+                resource = self.dirs.get(path) or self.files.get(path) or File.from_path(path)
+            selected[path] = resource
+            if isinstance(resource, Dir) and path.is_dir():
+                for child in path.iterdir():
+                    if child.is_symlink() or self._ignored(child):
+                        continue
+                    if child.is_file() or child.is_dir():
+                        pending.append(child)
+        return selected
+
+    def _register(self, resources: Iterable[File | Dir]) -> tuple[File | Dir, ...]:
+        registered = []
+        try:
+            for resource in resources:
+                if isinstance(resource, Dir):
+                    collection = self.dirs
+                else:
+                    collection = self.files
+                if collection.get(resource.id) is resource:
+                    resource.add()
+                    continue
+                # while resource.id in self.files or resource.id in self.dirs:
+                while (
+                    resource.id in self.files.id2file
+                    or resource.id in self.dirs.id2dir
+                ):
+                    del resource.id
+                collection[resource.id] = resource
+                registered.append(resource)
+        except Exception:
+            for resource in reversed(registered):
+                del resource._parent[resource.id]
+            raise
+        return tuple(registered)
+
+    def _change(
+            self,
+            resource: File | Dir,
+            event_type: str,
+            status: ChangeStatus = 'unstaged',
+    ) -> Change:
+        is_directory = isinstance(resource, Dir)
+        return Change(
+            _parent=self.files,
+            src_path=str(resource.path),
+            event_type=event_type,
+            is_directory=is_directory,
+            file_id=None if is_directory else resource.id,
+            dir_id=resource.id if is_directory else None,
+            status=status,
+        )
 
     def remove(
             self,
-            *files: str | Path | File | int,
-    ) -> tuple[File, ...]:
-        """Stop tracking files, staging their pending changes and removal.
-
-        Files remain on disk; this operation is analogous to git rm --cached.
-        """
-        keys = (
-            value.id if isinstance(value, File)
-            else value
-            for value in files
-            if not isinstance(value, File) or self.files.id2file.get(value.id) is value
-        )
-        selected = {
-            file.id: file
-            for key in keys
-            if (file := self.files.get(key)) is not None
-        }
+            *files: str | Path | File | Dir | int,
+    ) -> tuple[File | Dir, ...]:
+        selected = {}
+        for value in files:
+            if isinstance(value, (File, Dir)):
+                collection = self.dirs if isinstance(value, Dir) else self.files
+                resource = value if collection.get(value.id) is value else None
+            else:
+                resource = self.dirs.get(value) or self.files.get(value)
+            if resource is None:
+                continue
+            selected[resource.id] = resource
+            if isinstance(resource, Dir):
+                for child in (*self.dirs.id2dir.values(), *self.files.id2file.values()):
+                    if child.path.is_relative_to(resource.path):
+                        selected[child.id] = child
         removed = tuple(selected.values())
         ids = set(selected)
-        del self.files[ids]
         staged = [
             dataclasses.replace(change, status='staged')
             for change in self.changes.unstaged
-            if change.file_id in ids
+            if change.file_id in ids or change.dir_id in ids
         ]
         removals = [
-            Change(
-                _parent=self.files,
-                src_path=str(file.path),
-                event_type='removed',
-                file_id=file.id,
-                status='staged'
-            )
-            for file in removed
+            self._change(resource, 'removed', 'staged')
+            for resource in removed
         ]
+        detached = []
         try:
+            for resource in reversed(removed):
+                del resource._parent[resource.id]
+                detached.append(resource)
             self.changes.record([*staged, *removals])
         except Exception:
-            for file in removed:
-                self.files[file.id] = file
+            for resource in reversed(detached):
+                resource._parent[resource.id] = resource
             raise
         return removed
 
@@ -224,6 +299,10 @@ class Trail(
     @cached_property
     def files(self):
         return Files(self)
+
+    @cached_property
+    def dirs(self):
+        return Dirs(self)
 
     @cached_property
     def changes(self):

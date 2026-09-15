@@ -11,6 +11,7 @@ from .changes import Changes
 from .node import Node
 
 from .watchdog import Watchdog
+from .entries import Entries, Entry
 
 if TYPE_CHECKING:
     from .trail import Trail
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 FileKey = str | Path | int
 
 
-class File(Node):
+class File( Entry):
     path: Path
     _parent: Files
 
@@ -66,23 +67,13 @@ class File(Node):
         return self.path.parent
 
     def add(self) -> None:
-        watchdog = self._files.watchdog
+        watchdog = self._watchdog
         watchdog.watch(self.directory)
         watchdog.dir2ids.setdefault(self.directory, set()).add(self.id)
 
     def remove(self) -> None:
-        watchdog = self._files.watchdog
-        ids = watchdog.dir2ids.get(self.directory)
-        if ids is None or self.id not in ids:
-            return
-        if len(ids) == 1:
-            watch = watchdog.watches.get(self.directory)
-            if watch is not None:
-                watchdog.observer.unschedule(watch)
-                del watchdog.watches[self.directory]
-            del watchdog.dir2ids[self.directory]
-        else:
-            ids.remove(self.id)
+        watchdog = self._watchdog
+        watchdog.release(self.directory, self.id)
 
     def move(self, destination: str | Path) -> Self:
         """Update tracking after a filesystem move; do not move anything on disk."""
@@ -93,10 +84,10 @@ class File(Node):
         source = self.path
         if source == destination:
             return self
-        watchdog = files.watchdog
+        watchdog = self._watchdog
         watchdog.watch(destination.parent)
         watchdog.dir2ids.setdefault(destination.parent, set()).add(self.id)
-        occupant = files.path2file.get(destination)
+        occupant = self._files.path2file.get(destination)
         if occupant is not None:
             del files[occupant.id]
         if source.parent != destination.parent:
@@ -106,7 +97,7 @@ class File(Node):
         files.path2file[destination] = self
         return self
 
-class Files(Node):
+class Files(Entries):
     """Tracked files indexed by normalized path and stable ID.
 
     Mutate through this collection, and use File.move() to change a tracked path.
@@ -250,10 +241,6 @@ class Files(Node):
                 del self[file.id]
             raise
         return tuple(selected.values())
-
-    @cached_property
-    def watchdog(self) -> Watchdog:
-        return Watchdog(self)
 
     def observing(self, *, debounce: float | None = None):
         """Observe registered resources for the duration of an async context.

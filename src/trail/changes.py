@@ -34,22 +34,53 @@ class Change(Node):
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: ChangeStatus = 'unstaged'
     file_id: int | None = None
+    dir_id: int | None = None
     commit_id: int | None = None
     _parent: Node = field(kw_only=True, repr=False, compare=False, metadata={'csv': False})
 
     def tracked(self) -> Self | None:
-        if self.is_directory or self.event_type not in EVENT_TYPES:
+        if (
+            self.event_type not in EVENT_TYPES
+            or (self.is_directory and self.event_type == 'modified')
+        ):
             return None
+        trail = self._trail
+        collection = trail.dirs if self.is_directory else trail.files
         source = Path(fsdecode(self.src_path)).expanduser().resolve()
-        file = self._files.get(source)
-        if file is None:
-            return None
-        self.src_path = str(source)
-        self.file_id = file.id
-        if self.event_type == "moved" and self.dest_path:
+        target = Path(fsdecode(self.dest_path or self.src_path))
+        destination = None
+        if self.event_type == 'moved' and self.dest_path:
             destination = Path(fsdecode(self.dest_path)).expanduser().resolve()
             self.dest_path = str(destination)
-            file.move(destination)
+        resource = collection.get(source)
+        if resource is None and destination is not None:
+            resource = collection.get(destination)
+        if resource is None:
+            path = destination or source
+            if (
+                self.event_type not in ('created', 'moved')
+                or trail.dirs.get(path.parent) is None
+                or trail._ignored(path)
+                or target.is_symlink()
+            ):
+                return None
+            if not (path.is_dir() if self.is_directory else path.is_file()):
+                return None
+            try:
+                resource = collection.add(path)[0]
+            except (FileNotFoundError, NotADirectoryError):
+                return None
+        self.src_path = str(source)
+        if self.is_directory:
+            self.dir_id = resource.id
+            if self.event_type == 'deleted':
+                trail.files.watchdog.invalidate(source)
+        else:
+            self.file_id = resource.id
+        if destination is not None and resource.path != destination:
+            resource.move(destination)
+        elif self.event_type == 'created':
+            resource.add()
         return self
 
 class CSV(
@@ -112,8 +143,10 @@ class CSV(
             if change.id in ids:
                 raise ValueError(f'Change {change.id} occurs more than once in the batch')
             original = existing.get(change.id)
-            if original is not None and original.file_id != change.file_id:
-                raise ValueError(f'Cannot change the tracked file for change {change.id}')
+            if original is not None and (
+                original.file_id != change.file_id or original.dir_id != change.dir_id
+            ):
+                raise ValueError(f'Cannot change the tracked resource for change {change.id}')
             ids.add(change.id)
         if self._trail.dir is not None:
             self.append(batch)
@@ -137,6 +170,7 @@ class CSV(
                     id=int(row['id']),
                     timestamp=datetime.fromisoformat(row['timestamp']),
                     file_id=int(row['file_id']) if row.get('file_id') else None,
+                    dir_id=int(row['dir_id']) if row.get('dir_id') else None,
                     commit_id=int(row['commit_id']) if row.get('commit_id') else None,
                 )
                 for name in ('is_directory', 'is_synthetic'):
@@ -282,7 +316,10 @@ class Changes(BaseChanges):
                 continue
             lines = [heading, hint]
             for change in changes:
-                label = labels.get(change.event_type, change.event_type) + ':'
+                label = labels.get(change.event_type, change.event_type)
+                if change.is_directory and change.event_type in ('added', 'created'):
+                    label = 'new dir'
+                label += ':'
                 path = relpath(fsdecode(change.src_path))
                 if change.event_type == 'moved' and change.dest_path:
                     destination = relpath(fsdecode(change.dest_path))

@@ -9,12 +9,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Self
 
 from watchdog.events import (
+    DirCreatedEvent,
+    DirDeletedEvent,
+    DirMovedEvent,
     FileCreatedEvent,
     FileDeletedEvent,
     FileModifiedEvent,
     FileMovedEvent,
     FileSystemEvent,
     FileSystemEventHandler,
+    DirModifiedEvent
 )
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
@@ -32,10 +36,7 @@ class Handler(FileSystemEventHandler, Node):
     _parent: Watchdog
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        if (
-            event.is_directory
-            or event.event_type not in EVENT_TYPES
-        ):
+        if event.event_type not in EVENT_TYPES:
             return
         watchdog = self._parent
         change = Change(_parent=watchdog, **asdict(event))
@@ -79,7 +80,7 @@ class Watchdog(Node):
         return asyncio.create_task(self.consume(), name="watchdog-consumer")
 
     def watch(self, directory: Path) -> None:
-        if directory not in self.watches:
+        if directory not in self.watches and directory.is_dir():
             self.watches[directory] = self.observer.schedule(
                 self.handler,
                 str(directory),
@@ -89,8 +90,36 @@ class Watchdog(Node):
                     FileModifiedEvent,
                     FileDeletedEvent,
                     FileMovedEvent,
+                    DirCreatedEvent,
+                    DirDeletedEvent,
+                    DirMovedEvent,
                 ],
             )
+
+    def release(
+            self,
+            directory: Path,
+            identifier: int,
+    ) -> None:
+        ids = self.dir2ids.get(directory)
+        if ids is None or identifier not in ids:
+            return
+        if len(ids) == 1:
+            watch = self.watches.get(directory)
+            if watch is not None:
+                with suppress(KeyError):
+                    self.observer.unschedule(watch)
+                del self.watches[directory]
+            del self.dir2ids[directory]
+        else:
+            ids.remove(identifier)
+
+    def invalidate(self, directory: Path) -> None:
+        for path in tuple(self.watches):
+            if path.is_relative_to(directory):
+                with suppress(KeyError):
+                    self.observer.unschedule(self.watches[path])
+                del self.watches[path]
 
     async def start(self) -> None:
         consumer = self.__dict__.get("consumer")
@@ -169,10 +198,24 @@ class Watchdog(Node):
                     break
                 batch.append(event)
 
-            self._trail.changes.record(
-                tracked
-                for change in batch
-                if (tracked := change.tracked()) is not None
-            )
+            trail = self._trail
+            tracked = []
+            for change in batch:
+                if change.tracked() is None:
+                    continue
+                tracked.append(change)
+                if change.is_directory and change.event_type in ('created', 'moved'):
+                    path = Path(change.dest_path or change.src_path)
+                    if path.is_dir() and not trail._ignored(path):
+                        try:
+                            resources = trail._collect(path)
+                        except (FileNotFoundError, NotADirectoryError):
+                            continue
+                        added = trail._register(resources.values())
+                        for resource in added:
+                            discovered = trail._change(resource, 'created')
+                            discovered.is_synthetic = True
+                            tracked.append(discovered)
+            trail.changes.record(tracked)
             if stopped:
                 return
