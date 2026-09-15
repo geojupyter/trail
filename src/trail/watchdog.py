@@ -24,6 +24,7 @@ from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
 from .changes import Change, EVENT_TYPES
+from .entry import Entry
 from .node import Node
 
 if TYPE_CHECKING:
@@ -45,6 +46,7 @@ class Handler(FileSystemEventHandler, Node):
 
 class Watchdog(Node):
     _parent: Files
+    _consumer: asyncio.Task[None] | None = None
     debounce = 0.1
 
     @classmethod
@@ -75,9 +77,11 @@ class Watchdog(Node):
     def dir2ids(self) -> dict[Path, set[int]]:
         return {}
 
-    @cached_property
-    def consumer(self):
-        return asyncio.create_task(self.consume(), name="watchdog-consumer")
+    @property
+    def consumer(self) -> asyncio.Task[None]:
+        if self._consumer is None:
+            self._consumer = asyncio.create_task(self.consume(), name="watchdog-consumer")
+        return self._consumer
 
     def watch(self, directory: Path) -> None:
         if directory not in self.watches and directory.is_dir():
@@ -122,7 +126,7 @@ class Watchdog(Node):
                 del self.watches[path]
 
     async def start(self) -> None:
-        consumer = self.__dict__.get("consumer")
+        consumer = self._consumer
         if consumer is not None:
             if consumer.done():
                 await consumer
@@ -175,8 +179,10 @@ class Watchdog(Node):
     def clear(self) -> None:
         # Native observer threads cannot be restarted. Retain directory membership
         # so a new observer can recreate the watches on the next start.
-        for name in ("loop", "queue", "handler", "consumer", "observer", "watches"):
-            self.__dict__.pop(name, None)
+        self._consumer = None
+        for name in ("loop", "queue", "handler", "observer", "watches"):
+            with suppress(AttributeError):
+                delattr(self, name)
 
     async def consume(self) -> None:
         while True:
@@ -208,13 +214,25 @@ class Watchdog(Node):
                     path = Path(change.dest_path or change.src_path)
                     if path.is_dir() and not trail._ignored(path):
                         try:
-                            resources = trail._collect(path)
+                            root = trail.dirs.get(path)
+                            if root is None:
+                                root = Entry.from_path(path, trail=trail)
+                            resources = tuple(root.walk())
                         except (FileNotFoundError, NotADirectoryError):
                             continue
-                        added = trail._register(resources.values())
+                        added = []
+                        try:
+                            for resource in resources:
+                                if resource._parent.id2entry.get(resource.id) is resource:
+                                    continue
+                                resource.add()
+                                added.append(resource)
+                        except Exception:
+                            for resource in reversed(added):
+                                resource.remove()
+                            raise
                         for resource in added:
-                            discovered = trail._change(resource, 'created')
-                            discovered.is_synthetic = True
+                            discovered = resource.change('created', is_synthetic=True)
                             tracked.append(discovered)
             trail.changes.record(tracked)
             if stopped:

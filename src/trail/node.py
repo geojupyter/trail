@@ -80,3 +80,15 @@ class Node:
         if isinstance(parent, Handler):
             return parent
         return parent._handler
+
+    @staticmethod
+    def _setnested(
+            obj: object,
+            name: str,
+            value: object,
+    ):
+        attrs = name.split('.')
+        for attr in attrs[:-1]:
+            obj = getattr(obj, attr)
+        setattr(obj, attrs[-1], value)
+

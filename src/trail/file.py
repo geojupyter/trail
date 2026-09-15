@@ -1,84 +1,38 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
 from functools import cached_property
 from pathlib import Path
-from stat import S_ISREG
-from typing import TYPE_CHECKING, Self, overload
-from uuid import uuid4
+from typing import Self, TYPE_CHECKING
 
-from .changes import Changes
-from .node import Node
-
-from .watchdog import Watchdog
 from .entry import Entries, Entry
+from .watchdog import Watchdog
 
 if TYPE_CHECKING:
     from .trail import Trail
 
-FileKey = str | Path | int
-
-
-class File( Entry):
-    path: Path
+class File(Entry):
     _parent: Files
-
-    @classmethod
-    def from_path(cls, path: str | Path) -> Self:
-        path = Path(path).expanduser().resolve()
-        metadata = path.stat()
-        if not S_ISREG(metadata.st_mode):
-            raise ValueError(f"Not a regular file: {path}")
-        out = cls()
-        out.path = path
-        out.size = metadata.st_size
-        out.mtime = metadata.st_mtime
-        _ = out.id
-        return out
-
-    @property
-    def name(self) -> str:
-        return self.path.name
+    is_directory = False
 
     @cached_property
-    def size(self) -> int:
-        return self.path.stat().st_size
-
-    @cached_property
-    def mtime(self) -> float:
-        return self.path.stat().st_mtime
-
-    @cached_property
-    def id(self) -> int:
-        return uuid4().int
+    def _parent(self) -> Files:
+        return self._trail.files
 
     @property
-    def events(self) -> Changes:
-        changes = self._trail.changes
-        selected = (
-            change
-            for change in changes
-            if change.file_id == self.id
-        )
-        return Changes(changes, selected)
-
-    @property
-    def directory(self) -> Path:
-        return self.path.parent
-
-    def add(self) -> None:
-        watchdog = self._watchdog
-        watchdog.watch(self.directory)
-        watchdog.dir2ids.setdefault(self.directory, set()).add(self.id)
+    def _watch_paths(self) -> tuple[Path, ...]:
+        return (self.directory,)
 
     def remove(self) -> None:
-        watchdog = self._watchdog
-        watchdog.release(self.directory, self.id)
+        collection = self._parent
+        if collection is None or collection.id2entry.get(self.id) is not self:
+            return
+        self._watchdog.release(self.directory, self.id)
+        super().remove()
 
     def move(self, destination: str | Path) -> Self:
         """Update tracking after a filesystem move; do not move anything on disk."""
         files = self._files
-        if files.id2file.get(self.id) is not self:
+        if files.id2entry.get(self.id) is not self:
             raise KeyError(f'File is not tracked: {self.path}')
         destination = Path(destination).expanduser().resolve()
         source = self.path
@@ -87,167 +41,22 @@ class File( Entry):
         watchdog = self._watchdog
         watchdog.watch(destination.parent)
         watchdog.dir2ids.setdefault(destination.parent, set()).add(self.id)
-        occupant = self._files.path2file.get(destination)
+        occupant = self._files.path2entry.get(destination)
         if occupant is not None:
-            del files[occupant.id]
+            occupant.remove()
         if source.parent != destination.parent:
-            self.remove()
-        del files.path2file[source]
+            watchdog.release(source.parent, self.id)
+        del files.path2entry[source]
         self.path = destination
-        files.path2file[destination] = self
+        files.path2entry[destination] = self
         return self
 
-class Files(Entries):
-    """Tracked files indexed by normalized path and stable ID.
 
-    Mutate through this collection, and use File.move() to change a tracked path.
-    Assignment keys must match the supplied File's path or ID. Replacing a
-    file removes its old entries from both indexes and updates its watches.
-    """
-
+class Files(Entries[File]):
+    entry_type = File
     _parent: Trail
 
     @cached_property
-    def path2file(self) -> dict[Path, File]:
-        """Mapping from normalized file paths to File objects."""
-        return {}
+    def watchdog(self) -> Watchdog:
+        return Watchdog(self)
 
-    @cached_property
-    def id2file(self) -> dict[int, File]:
-        """Mapping from stable file IDs to File objects."""
-        return {}
-
-    @overload
-    def __getitem__(self, key: FileKey) -> File: ...
-
-    @overload
-    def __getitem__(self, key: Iterable[FileKey]) -> tuple[File, ...]: ...
-
-    def __getitem__(self, key: FileKey | Iterable[FileKey]) -> File | tuple[File, ...]:
-        if isinstance(key, int):
-            return self.id2file[key]
-        if isinstance(key, (str, Path)):
-            return self.path2file[Path(key).expanduser().resolve()]
-        selected = []
-        for value in key:
-            if not isinstance(value, (str, Path, int)):
-                raise TypeError('Expected a path or file ID')
-            selected.append(self[value])
-        return tuple(selected)
-
-    def __setitem__(
-            self,
-            key: str | Path | int,
-            file: File,
-    ) -> None:
-        """Key-agnostic method to register a file by path or ID, replacing any existing entries."""
-        if not isinstance(file, File):
-            raise TypeError('Expected a File')
-        path = Path(file.path).expanduser().resolve()
-        if isinstance(key, int):
-            matches = key == file.id
-        else:
-            matches = Path(key).expanduser().resolve() == path
-        if not matches:
-            raise ValueError('Key must match the file ID or normalized path')
-        parent = file.__dict__.get('_parent')
-        if (
-            parent is not None
-            and parent is not self
-            and parent.get(file.id) is file
-        ):
-            raise ValueError('File already belongs to another collection')
-
-        # Schedule before replacing anything, so failure leaves both indexes intact.
-        self.watchdog.watch(path.parent)
-        self.watchdog.dir2ids.setdefault(path.parent, set()).add(file.id)
-        previous = self.id2file.get(file.id)
-        occupant = self.path2file.get(path)
-        for old in (previous, occupant):
-            if (
-                old is not None
-                and old is not file
-                and self.id2file.get(old.id) is old
-            ):
-                if (
-                    old.id != file.id
-                    or old.directory != path.parent
-                ):
-                    old.remove()
-                del self.path2file[old.path]
-                del self.id2file[old.id]
-        file.path = path
-        file._parent = self
-        self.path2file[path] = file
-        self.id2file[file.id] = file
-
-    def __delitem__(self, key: FileKey | Iterable[FileKey]) -> None:
-        keys = (key,) if isinstance(key, (str, Path, int)) else key
-        files = {}
-        for value in keys:
-            if not isinstance(value, (str, Path, int)):
-                raise TypeError('Expected a path or file ID')
-            file = self.get(value)
-            if file is not None:
-                files[file.id] = file
-        for file in files.values():
-            file.remove()
-            del self.path2file[file.path]
-            del self.id2file[file.id]
-
-    def __iter__(self) -> Iterator[int]:
-        return iter(self.id2file)
-
-    def __len__(self) -> int:
-        return len(self.id2file)
-
-    def __contains__(self, key: str | Path | int) -> bool:
-        if isinstance(key, int):
-            return key in self.id2file
-        return Path(key).expanduser().resolve() in self.path2file
-
-    def get(
-            self,
-            key: str | Path | int,
-            default=None,
-    ):
-        try:
-            return self[key]
-        except KeyError:
-            return default
-
-    def items(self):
-        return self.id2file.items()
-
-    def add(self, *paths: str | Path) -> tuple[File, ...]:
-        """Register each distinct path once, validating the batch first."""
-        selected: dict[Path, File] = {}
-        for path in paths:
-            resolved = Path(path).expanduser().resolve()
-            if resolved not in selected:
-                selected[resolved] = self.path2file.get(resolved) or File.from_path(resolved)
-
-        registered = []
-        try:
-            for file in selected.values():
-                if self.id2file.get(file.id) is file:
-                    continue
-                while file.id in self.id2file:
-                    del file.id
-                self[file.id] = file
-                registered.append(file)
-        except Exception:
-            for file in reversed(registered):
-                del self[file.id]
-            raise
-        return tuple(selected.values())
-
-    def observing(self, *, debounce: float | None = None):
-        """Observe registered resources for the duration of an async context.
-
-        Events are processed asynchronously; exiting drains pending events.
-        Stage changes after they appear in changes.unstaged, or after exit.
-        """
-        if debounce is not None:
-            self.watchdog.debounce = debounce
-        return self.watchdog.context()
