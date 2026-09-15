@@ -46,7 +46,6 @@ class Handler(FileSystemEventHandler, Node):
 
 class Watchdog(Node):
     _parent: Trail
-    _consumer: asyncio.Task[None] | None = None
     debounce = 0.1
 
     @classmethod
@@ -77,14 +76,15 @@ class Watchdog(Node):
     def dir2ids(self) -> dict[Path, set[int]]:
         return {}
 
-    @property
+    @cached_property
     def consumer(self) -> asyncio.Task[None]:
-        if self._consumer is None:
-            self._consumer = asyncio.create_task(self.consume(), name="watchdog-consumer")
-        return self._consumer
+        return asyncio.create_task(self.consume(), name="watchdog-consumer")
 
     def watch(self, directory: Path) -> None:
-        if directory not in self.watches and directory.is_dir():
+        if (
+            directory not in self.watches
+            and directory.is_dir()
+        ):
             self.watches[directory] = self.observer.schedule(
                 self.handler,
                 str(directory),
@@ -126,12 +126,11 @@ class Watchdog(Node):
                 del self.watches[path]
 
     async def start(self) -> None:
-        consumer = self._consumer
-        if consumer is not None:
-            if consumer.done():
-                await consumer
-            else:
-                return
+        consumer = self.consumer
+        if consumer.done():
+            await consumer
+        else:
+            return
         self.loop = asyncio.get_running_loop()
         try:
             for directory in self.dir2ids:
@@ -179,7 +178,7 @@ class Watchdog(Node):
     def clear(self) -> None:
         # Native observer threads cannot be restarted. Retain directory membership
         # so a new observer can recreate the watches on the next start.
-        self._consumer = None
+        del self.consumer
         for name in ("loop", "queue", "handler", "observer", "watches"):
             with suppress(AttributeError):
                 delattr(self, name)
@@ -212,7 +211,11 @@ class Watchdog(Node):
                 tracked.append(change)
                 if change.is_directory and change.event_type in ('created', 'moved'):
                     path = Path(change.dest_path or change.src_path)
-                    if path.is_dir() and not trail._ignored(path):
+                    # if path.is_dir() and not trail._ignored(path):
+                    if (
+                        path.is_dir()
+                        and not trail._ignored(path)
+                    ):
                         try:
                             root = trail.dirs.get(path)
                             if root is None:

@@ -122,7 +122,10 @@ class Trail(
                 elif path.is_file():
                     root = self.files.get(path)
                 else:
-                    root = self.dirs.get(path) or self.files.get(path)
+                    root = (
+                        self.dirs.get(path)
+                        or self.files.get(path)
+                    )
                 if root is None:
                     root = Entry.from_path(path, trail=self)
             for entry in root.walk():
@@ -147,7 +150,10 @@ class Trail(
                 if collection.get(entry.id) is entry:
                     entry.add()
                     continue
-                while entry.id in self.files or entry.id in self.dirs:
+                while (
+                    entry.id in self.files
+                    or entry.id in self.dirs
+                ):
                     del entry.id
                 entry.add()
                 registered.append(entry)
@@ -184,10 +190,19 @@ class Trail(
         selected = {}
         for value in files:
             if isinstance(value, (File, Dir)):
-                collection = self.dirs if isinstance(value, Dir) else self.files
-                resource = value if collection.get(value.id) is value else None
+                if isinstance(value, Dir):
+                    collection = self.dirs
+                else:
+                    collection = self.files
+                if collection.get(value.id) is value:
+                    resource = value
+                else:
+                    resource = None
             else:
-                resource = self.dirs.get(value) or self.files.get(value)
+                resource = (
+                    self.dirs.get(value)
+                    or self.files.get(value)
+                )
             if resource is None:
                 continue
             selected[resource.id] = resource

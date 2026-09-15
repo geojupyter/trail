@@ -10,7 +10,6 @@ from .entry import Entries, Entry
 
 class Dir(Entry):
     _parent: Dirs
-    is_directory = True
 
     @cached_property
     def _parent(self) -> Dirs:
@@ -35,42 +34,47 @@ class Dir(Entry):
             for child in entry.path.iterdir():
                 if child.is_symlink() or trail._ignored(child):
                     continue
-                if child.is_file() or child.is_dir():
-                    collection = trail.dirs if child.is_dir() else trail.files
-                    pending.append(
-                        collection.get(child)
-                        or Entry.from_path(child, trail=trail)
-                    )
+                if child.is_dir():
+                    collection = trail.dirs
+                else:
+                    collection = trail.files
+                pending.append(
+                    collection.get(child)
+                    or Entry.from_path(child, trail=trail)
+                )
 
     def remove(self) -> None:
         collection = self._parent
-        if collection is None or collection.id2entry.get(self.id) is not self:
+        if (
+            collection is None
+            or collection.id2entry.get(self.id) is not self
+        ):
             return
         for path in self._watch_paths:
             self._watchdog.release(path, self.id)
         super().remove()
 
-    def move(self, destination: str | Path) -> Self:
+    def move(self, dest: str | Path) -> Self:
         dirs = self._trail.dirs
         if dirs.id2entry.get(self.id) is not self:
             raise KeyError(f'Directory is not tracked: {self.path}')
-        destination = Path(destination).expanduser().resolve()
-        source = self.path
-        if source == destination:
+        dest = Path(dest).expanduser().resolve()
+        src = self.path
+        if src == dest:
             return self
-        if destination.is_relative_to(source):
+        if dest.is_relative_to(src):
             raise ValueError('Cannot move a directory inside itself')
 
         files = self._trail.files
         directories = [
-            (directory, directory.path, destination / directory.path.relative_to(source))
+            (directory, directory.path, dest / directory.path.relative_to(src))
             for directory in dirs.id2entry.values()
-            if directory.path.is_relative_to(source)
+            if directory.path.is_relative_to(src)
         ]
         descendants = [
-            (file, destination / file.path.relative_to(source))
+            (file, dest / file.path.relative_to(src))
             for file in files.id2entry.values()
-            if file.path.is_relative_to(source)
+            if file.path.is_relative_to(src)
         ]
         watchdog = self._watchdog
         retained: list[tuple[Path, int]] = []
@@ -95,7 +99,10 @@ class Dir(Entry):
 
         for directory, previous, target in directories:
             occupant = dirs.path2entry.get(target)
-            if occupant is not None and occupant is not directory:
+            if (
+                occupant is not None
+                and occupant is not directory
+            ):
                 occupant.remove()
             retained_paths = {target, target.parent}
             for path in dict.fromkeys((previous, previous.parent)):

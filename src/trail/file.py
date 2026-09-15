@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 
 class File(Entry):
     _parent: Files
-    is_directory = False
 
     @cached_property
     def _parent(self) -> Files:
@@ -23,7 +22,10 @@ class File(Entry):
 
     def remove(self) -> None:
         collection = self._parent
-        if collection is None or collection.id2entry.get(self.id) is not self:
+        if (
+            collection is None
+            or collection.id2entry.get(self.id) is not self
+        ):
             return
         self._watchdog.release(self.directory, self.id)
         super().remove()

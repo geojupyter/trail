@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, ItemsView
+from collections.abc import ItemsView, Iterable, Iterator
 from functools import cached_property
 from pathlib import Path
 from stat import S_ISDIR, S_ISREG
-from typing import TYPE_CHECKING, Self, cast, overload
+from typing import overload, Self, TYPE_CHECKING
 from uuid import uuid4
 
 from .changes import Change, Changes, ChangeStatus
@@ -18,7 +18,6 @@ EntryKey = str | Path | int
 
 class Entry(Node):
     path: Path
-    is_directory: bool
     _parent: Entries[Self]
     id: int
 
@@ -32,25 +31,27 @@ class Entry(Node):
         from .file import File
 
         path = Path(path).expanduser().resolve()
+        path = Path(path).expanduser().resolve()
+        metadata = path.stat()
+
         if trail is not None and trail._ignored(path):
             raise ValueError(f'Cannot track Trail metadata: {path}')
-        metadata = path.stat()
-        entry_type = cls
-        if cls is Entry:
-            entry_type = cast(type[Self], Dir if S_ISDIR(metadata.st_mode) else File)
-        valid = S_ISDIR(metadata.st_mode) if entry_type.is_directory else S_ISREG(metadata.st_mode)
-        if not valid:
-            kind = 'directory' if entry_type.is_directory else 'regular file'
-            raise ValueError(f'Not a {kind}: {path}')
-        out = entry_type()
+
+        if issubclass(cls, Dir):
+            if not S_ISDIR(metadata.st_mode):
+                raise ValueError(f'Not a directory: {path}')
+        elif issubclass(cls, File):
+            if not S_ISREG(metadata.st_mode):
+                raise ValueError(f'Not a regular file: {path}')
+        else:
+            if S_ISDIR(metadata.st_mode):
+                cls = Dir
+            elif S_ISREG(metadata.st_mode):
+                cls = File
+
+        out = cls()
         out.path = path
-        out.size = metadata.st_size
-        out.mtime = metadata.st_mtime
-        _ = out.id
-        if trail is not None:
-            out._trail = trail
-            # let the subclass resolve its parent from the trail
-            del out._parent
+        out._trail = trail
         return out
 
     @property
@@ -126,7 +127,11 @@ class Entry(Node):
         previous = collection.id2entry.get(self.id)
         occupant = collection.path2entry.get(path)
         for old in (previous, occupant):
-            if old is None or old is self or collection.id2entry.get(old.id) is not old:
+            if (
+                old is None
+                or old is self
+                or collection.id2entry.get(old.id) is not old
+            ):
                 continue
             if old.id == self.id:
                 for watched_path in old._watch_paths:
@@ -141,7 +146,10 @@ class Entry(Node):
 
     def remove(self) -> None:
         collection = self._parent
-        if collection is None or collection.id2entry.get(self.id) is not self:
+        if (
+            collection is None
+            or collection.id2entry.get(self.id) is not self
+        ):
             return
         del collection.id2entry[self.id]
         if collection.path2entry.get(self.path) is self:
@@ -240,9 +248,9 @@ class Entries[E: Entry](Node):
         for path in paths:
             resolved = Path(path).expanduser().resolve()
             if resolved not in selected:
-                selected[resolved] = self.get(resolved) or self.entry_type.from_path(
-                    resolved,
-                    trail=self._trail,
+                selected[resolved] = (
+                    self.get(resolved)
+                    or self.entry_type.from_path(resolved, trail=self._trail)
                 )
         registered = []
         try:
@@ -250,7 +258,10 @@ class Entries[E: Entry](Node):
                 if self.id2entry.get(entry.id) is entry:
                     entry.add()
                     continue
-                while entry.id in self._trail.files or entry.id in self._trail.dirs:
+                while (
+                    entry.id in self._trail.files
+                    or entry.id in self._trail.dirs
+                ):
                     del entry.id
                 entry.add()
                 registered.append(entry)
