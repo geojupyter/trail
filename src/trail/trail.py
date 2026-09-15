@@ -133,7 +133,7 @@ class Trail(
         roots = [
             path
             for path in requested
-            if selected[path].is_directory
+            if isinstance(selected[path], Dir)
         ]
         if roots:
             for entry in (*self.dirs.id2entry.values(), *self.files.id2entry.values()):
@@ -146,7 +146,10 @@ class Trail(
         registered = []
         try:
             for entry in selected.values():
-                collection = self.dirs if entry.is_directory else self.files
+                if isinstance(entry, Dir):
+                    collection = self.dirs
+                else:
+                    collection = self.files
                 if collection.get(entry.id) is entry:
                     entry.add()
                     continue
