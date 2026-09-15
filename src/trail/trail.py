@@ -104,6 +104,7 @@ class Trail(
             )
             if not dir.name == '.trail':
                 dir /= '.trail'
+            self.dir = dir
             self.json.load()
 
     @cached_property
