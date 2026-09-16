@@ -97,3 +97,6 @@ class Node:
         for attr in attrs[:-1]:
             obj = getattr(obj, attr)
         setattr(obj, attrs[-1], value)
+
+    def __set_name__( self, owner: type, name: str) -> None:
+        self.__name__ = name

@@ -169,13 +169,6 @@ class EventDict(
     def jsonl(self) -> JSONL:
         return JSONL(self)
 
-    def __set_name__(
-            self,
-            owner: type,
-            name: str,
-    ) -> None:
-        self.__name__ = name
-
     def _get(
             self,
             instance: Events,
@@ -217,9 +210,7 @@ class Unstaged(EventDict):
 class Staged(EventDict):
     _parent: Events
 
-    def commit(
-            self,
-    ):
+    def commit( self):
         """Move all staged events to the committed state."""
         self._parent.committed.update(self)
         self.clear()

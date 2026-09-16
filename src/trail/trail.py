@@ -2,14 +2,12 @@ from __future__ import annotations
 import json
 
 from pathlib import Path
-
 import dataclasses
 from functools import cached_property
 from typing import Self
 from uuid import uuid4
-from ._commits import Commit, Commits
+from .commit import Commit, Commits
 
-from ._changes import Change, Changes
 from .dir import Dir, Dirs
 from .file import File, Files
 from .entry import Entry
@@ -73,16 +71,15 @@ class Trail(
         return Dirs(self)
 
     @cached_property
-    def changes(self):
-        return Changes(self)
-
-    @cached_property
     def json(self):
         return JSON(self)
 
     @cached_property
     def commits(self):
-        return Commits(self)
+        out = Commits()
+        out._parent = self
+        out.jsonl.read()
+        return out
 
     @cached_property
     def events(self):
