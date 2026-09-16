@@ -1,16 +1,17 @@
 from __future__ import annotations
 import json
 
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 import dataclasses
 from functools import cached_property
-from typing import Self
+from typing import Self, overload
 from uuid import uuid4
 from .commit import Commit, Commits
 
 from .dir import Dir, Dirs
 from .file import File, Files
-from .entry import Entry
+from .entry import Entry, EntryKey
 from .node import Node
 from .watchdog import Watchdog
 from .event import Events
@@ -54,6 +55,44 @@ class JSON(Node):
             return None
 
 
+class EntryLookup(
+    Mapping[EntryKey, Entry],
+    Node,
+):
+    _parent: Trail
+
+    @overload
+    def __getitem__(self, key: EntryKey) -> Entry: ...
+
+    @overload
+    def __getitem__(self, key: Iterable[EntryKey]) -> tuple[Entry, ...]: ...
+
+    def __getitem__(
+            self,
+            key: EntryKey | Iterable[EntryKey],
+    ) -> Entry | tuple[Entry, ...]:
+        if isinstance(key, (str, Path, int)):
+            try:
+                return self._parent.files[key]
+            except KeyError:
+                return self._parent.dirs[key]
+        selected = []
+        for value in key:
+            if not isinstance(value, (str, Path, int)):
+                raise TypeError('Expected a path or entry ID')
+            selected.append(self[value])
+        return tuple(selected)
+
+    def __iter__(self) -> Iterator[int]:
+        yield from self._parent.files
+        yield from self._parent.dirs
+
+    def __len__(self) -> int:
+        out = len(self._parent.files)
+        out += len(self._parent.dirs)
+        return out
+
+
 class Trail(
     Node
 ):
@@ -69,6 +108,10 @@ class Trail(
     @cached_property
     def dirs(self):
         return Dirs(self)
+
+    @cached_property
+    def entries(self) -> EntryLookup:
+        return EntryLookup(self)
 
     @cached_property
     def json(self):
@@ -122,15 +165,7 @@ class Trail(
                 raise ValueError(f'Cannot track Trail metadata: {path}')
             root = selected.get(path)
             if root is None:
-                if path.is_dir():
-                    root = self.dirs.get(path)
-                elif path.is_file():
-                    root = self.files.get(path)
-                else:
-                    root = (
-                            self.dirs.get(path)
-                            or self.files.get(path)
-                    )
+                root = self.entries.get(path)
                 if root is None:
                     root = Entry.from_path(path, trail=self)
             for entry in root.walk():
@@ -207,10 +242,7 @@ class Trail(
                 else:
                     resource = None
             else:
-                resource = (
-                        self.dirs.get(value)
-                        or self.files.get(value)
-                )
+                resource = self.entries.get(value)
             if resource is None:
                 continue
             selected[resource.id] = resource
@@ -240,6 +272,13 @@ class Trail(
                 resource.add()
             raise
         return removed
+
+
+    def add( self, *paths: str | Path) -> tuple[Entry, ...]:
+        ...
+
+    def remove(self, *paths: str | Path) -> tuple[Entry, ...]:
+        ...
 
     def commit(
             self,
