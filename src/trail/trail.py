@@ -243,41 +243,22 @@ class Trail(
 
     def commit(
             self,
-            message: str | None = None,
+            message: str = '',
             author: str | None = None,
-    ) -> tuple[Change, ...]:
-        """Commit staged records, leaving subsequent unstaged changes alone.
+    ) -> Commit:
+        events = self.events.staged
+        if not events:
+            raise ValueError('No staged events to commit.')
+        commit = Commit(
+            events=list(events.values()),
+            message=message,
+            author=author,
+        )
+        self.commits[commit.id] = commit
+        events.commit()
+        return commit
 
-        This commits change metadata only; it does not snapshot file contents.
-        """
-        staged = tuple(self.changes.staged)
-        if not staged:
-            return ()
-        commit = Commit(_parent=self.commits, message=message or '', author=author)
-        while commit.id in self.commits.id2commit:
-            commit.id = uuid4().int
-        snapshots = [
-            dataclasses.replace(change, status='committed', commit_id=commit.id)
-            for change in staged
-        ]
-        checkpoints = {}
-        if self.dir is not None:
-            for path in (self.commits.csv.path, self.changes.csv.path):
-                checkpoints[path] = path.stat().st_size if path.exists() else None
-        try:
-            if self.dir is not None:
-                self.commits.csv.append([commit])
-            self.changes.record(snapshots)
-        except BaseException:
-            for path, size in checkpoints.items():
-                if size is None:
-                    path.unlink(missing_ok=True)
-                elif path.exists() and path.stat().st_size != size:
-                    with path.open('r+b') as stream:
-                        stream.truncate(size)
-            raise
-        self.commits.id2commit[commit.id] = commit
-        return staged
+
 
     def push(
             self,
