@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from collections import UserDict
 from dataclasses import asdict, dataclass, field, fields
-from datetime import UTC, datetime
+from datetime import datetime, UTC
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Self
+from typing import ClassVar, Self, TYPE_CHECKING
 from uuid import uuid4
 
 from .node import Node
@@ -209,6 +209,7 @@ class Unstaged(EventDict):
     _parent: Events
 
     def stage(self):
+        """Move all unstaged events to the staged state."""
         self._parent.staged.update(self)
         self.clear()
 
@@ -216,10 +217,15 @@ class Unstaged(EventDict):
 class Staged(EventDict):
     _parent: Events
 
-    def commit(self):
+    def commit(
+            self,
+    ):
+        """Move all staged events to the committed state."""
         self._parent.committed.update(self)
         self.clear()
 
+class Committed(EventDict):
+    _parent: Events
 
 class Events(
     Node
