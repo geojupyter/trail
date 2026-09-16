@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import UserDict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
@@ -82,38 +83,23 @@ class JSONL(Node):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding='utf-8')
 
-    def append(self) -> None:
+    def append(self, commits: Iterable[Commit]) -> None:
         path = self.path
         if path is None:
             return
-        if not path.exists():
-            self.write()
-            return
-        commits = iter(self._parent.values())
-        needs_newline = False
-        with path.open(encoding='utf-8') as file:
-            for line in file:
-                needs_newline = not line.endswith('\n')
-                if not line.strip():
-                    continue
-                commit = next(commits, None)
-                if (
-                        commit is None
-                        or json.loads(line) != commit.to_record()
-                ):
-                    raise ValueError(
-                        f'{path} does not match the commit prefix; use write() to replace it'
-                    )
         text = ''.join(
             json.dumps(commit.to_record(), ensure_ascii=False) + '\n'
             for commit in commits
         )
         if not text:
             return
-        with path.open('a', encoding='utf-8') as file:
-            if needs_newline:
-                file.write('\n')
-            file.write(text)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('a+b') as file:
+            if file.tell():
+                file.seek(-1, 2)
+                if file.read(1) != b'\n':
+                    file.write(b'\n')
+            file.write(text.encode('utf-8'))
 
 
 class Commits(
@@ -127,9 +113,20 @@ class Commits(
         return JSONL(self)
 
     def update(self, m, /) -> None:
-        self.data.update(m)
-        self.jsonl.append()
+        batch = dict(m)
+        self.jsonl.append(batch.values())
+        self.data.update(batch)
 
     def clear(self) -> None:
         super().clear()
         self.jsonl.write()
+
+    def __setitem__(
+            self,
+            key: int,
+            value: Commit,
+    ) -> None:
+        if not isinstance(value, Commit):
+            raise TypeError(f'Expected Commit, got {type(value).__name__}')
+        self.jsonl.append([value])
+        self.data[key] = value

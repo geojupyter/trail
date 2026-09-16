@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import UserDict
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, UTC
 from functools import cached_property
@@ -109,8 +110,8 @@ class JSONL(
                 if event.id in loaded:
                     raise ValueError(f'Duplicate event ID in {path}: {event.id}')
                 loaded[event.id] = event
-        self._parent.clear()
-        self._parent.update(loaded)
+        self._parent.data.clear()
+        self._parent.data.update(loaded)
 
     def write(self) -> None:
         path = self.path
@@ -123,38 +124,23 @@ class JSONL(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding='utf-8')
 
-    def append(self) -> None:
+    def append(self, events: Iterable[Event]) -> None:
         path = self.path
         if path is None:
             return
-        if not path.exists():
-            self.write()
-            return
-        events = iter(self._parent.values())
-        needs_newline = False
-        with path.open(encoding='utf-8') as file:
-            for line in file:
-                needs_newline = not line.endswith('\n')
-                if not line.strip():
-                    continue
-                event = next(events, None)
-                if (
-                        event is None
-                        or json.loads(line) != event.to_record()
-                ):
-                    raise ValueError(
-                        f'{path} does not match the event prefix; use write() to replace it'
-                    )
         text = ''.join(
             json.dumps(event.to_record(), ensure_ascii=False) + '\n'
             for event in events
         )
         if not text:
             return
-        with path.open('a', encoding='utf-8') as file:
-            if needs_newline:
-                file.write('\n')
-            file.write(text)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('a+b') as file:
+            if file.tell():
+                file.seek(-1, 2)
+                if file.read(1) != b'\n':
+                    file.write(b'\n')
+            file.write(text.encode('utf-8'))
 
 
 class EventDict(
@@ -189,9 +175,20 @@ class EventDict(
 
     locals().update(__get__=_get)
 
-    def update(self, m, /):
-        self.data.update(m)
-        self.jsonl.append()
+    def update(self, m, /) -> None:
+        batch = dict(m)
+        self.jsonl.append(batch.values())
+        self.data.update(batch)
+
+    def __setitem__(
+            self,
+            key: int,
+            value: Event,
+    ) -> None:
+        if not isinstance(value, Event):
+            raise TypeError(f'Expected Event, got {type(value).__name__}')
+        self.jsonl.append([value])
+        self.data[key] = value
 
     def clear(self):
         super().clear()
