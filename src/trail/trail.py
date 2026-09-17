@@ -133,6 +133,7 @@ class Trail(
             self,
             dir: str | Path | None = None,
     ) -> None:
+        """TODO: reference Myst's setup for a Trail setup"""
         super().__init__()
         if dir is None:
             # nodir mode

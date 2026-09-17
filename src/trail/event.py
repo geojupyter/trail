@@ -75,6 +75,7 @@ class AddEntryEvent(Event):
         if entry is None:
             entry = Entry.from_path(self.src_path, trail=trail)
         self.entry = entry
+        
         return entry.add()
 
 

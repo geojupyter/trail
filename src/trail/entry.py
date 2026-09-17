@@ -12,6 +12,7 @@ from .node import Node
 
 if TYPE_CHECKING:
     from .trail import Trail
+    from .event import Event
 
 EntryKey = str | Path | int
 
@@ -80,6 +81,10 @@ class Entry(Node):
     def id(self) -> int:
         return uuid4().int
 
+    @cached_property
+    def events(self) -> dict[int, Event]:
+        return {}
+
     @property
     def _watch_paths(self) -> tuple[Path, ...]:
         raise NotImplementedError
@@ -100,17 +105,6 @@ class Entry(Node):
         del collection.id2entry[self.id]
         if collection.path2entry.get(self.path) is self:
             del collection.path2entry[self.path]
-
-    def change(
-            self,
-            event_type: str,
-            status: ChangeStatus = 'unstaged',
-            **kwargs,
-    ) -> Change:
-        raise NotImplementedError
-
-    def move(self, destination: str | Path) -> Self:
-        raise NotImplementedError
 
 
 class Entries[E: Entry](Node):
@@ -208,7 +202,3 @@ class Entries[E: Entry](Node):
             raise
         return tuple(selected.values())
 
-    def observing(self, *, debounce: float | None = None):
-        if debounce is not None:
-            self._watchdog.debounce = debounce
-        return self._watchdog.context()
