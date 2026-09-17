@@ -31,7 +31,6 @@ class Entry(Node):
         from .file import File
 
         path = Path(path).expanduser().resolve()
-        path = Path(path).expanduser().resolve()
         metadata = path.stat()
 
         if trail is not None and trail._ignored(path):
@@ -48,10 +47,17 @@ class Entry(Node):
                 cls = Dir
             elif S_ISREG(metadata.st_mode):
                 cls = File
+            else:
+                raise ValueError(f'Not a regular file or directory: {path}')
 
         out = cls()
         out.path = path
         out._trail = trail
+        if trail is not None:
+            if isinstance(out, Dir):
+                out._parent = trail.dirs
+            else:
+                out._parent = trail.files
         return out
 
     @property

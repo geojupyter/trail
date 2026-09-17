@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import ClassVar, Self, TYPE_CHECKING
 from uuid import uuid4
 
+from .entry import Entry
 from .node import Node
 
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 class Event:
     classes: ClassVar[dict[str, type[Event]]] = {}
 
+    entry: Entry | None = field(default=None, init=False)
     id: int = field(default_factory=lambda: uuid4().int)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -35,6 +37,10 @@ class Event:
     def from_record(cls, /, **record) -> Event:
         name = record.pop('cls')
         event_cls = cls.classes.get(name)
+        # todo: needs access to trail to resolve entry by ID
+        id = record.pop('entry')
+
+
         if name == cls.__name__:
             event_cls = cls
         if event_cls is None:
@@ -56,7 +62,34 @@ class Event:
             **asdict(self),
         )
         out['timestamp'] = self.timestamp.isoformat()
+        out['entry'] = self.entry.id
         return out
+
+@dataclass(kw_only=True, slots=True)
+class AddEntryEvent(Event):
+    src_path: str
+    entry: Entry | None = field(default=None, init=False)
+
+    def apply(self, trail: Trail) -> Entry:
+        entry = trail.entries.get(self.src_path)
+        if entry is None:
+            entry = Entry.from_path(self.src_path, trail=trail)
+        self.entry = entry
+        return entry.add()
+
+
+@dataclass(kw_only=True, slots=True)
+class RemoveEntryEvent(Event):
+    src_path: str
+    entry: Entry | None = field(default=None, init=False)
+
+    def apply(self, trail: Trail) -> Entry | None:
+        entry = trail.entries.get(self.src_path)
+        if entry is None:
+            return None
+        self.entry = entry
+        entry.remove()
+        return entry
 
 
 @dataclass(kw_only=True, slots=True)
@@ -66,13 +99,16 @@ class WatchdogEvent(Event):
     event_type: str = field(default="", init=False)
     is_directory: bool = field(default=False, init=False)
     is_synthetic: bool = field(default=False)
+    entry: Entry | None = field(default=None, init=False)
 
     def apply(self, trail: Trail):
-        if self.is_directory:
-            entry = trail.dirs[self.src_path]
-        else:
-            entry = trail.files[self.src_path]
-        if self.dest_path != self.src_path:
+        entry = trail.entries[self.src_path]
+        self.entry = entry
+        if (
+                self.event_type == 'moved'
+                and self.dest_path
+                and self.dest_path != self.src_path
+        ):
             entry.move(self.dest_path)
         trail.events.unstaged[self.id] = self
 
@@ -198,10 +234,25 @@ class EventDict(
 class Unstaged(EventDict):
     _parent: Events
 
-    def stage(self):
-        """Move all unstaged events to the staged state."""
-        self._parent.staged.update(self)
-        self.clear()
+    def stage(self, *entries: Entry):
+        """
+        todo: User needs to be able to do `trail add <path>` to stage events
+        """
+        staged = self._parent.staged
+        if entries:
+            entries = set(entries)
+            subset = {
+                key: event
+                for key, event in self.items()
+                if event.entry in entries
+            }
+            staged.update(subset)
+            for key in subset:
+                del self.data[key]
+            self.jsonl.write()
+        else:
+            staged.update(self)
+            self.clear()
 
 
 class Staged(EventDict):
