@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import overload
 from uuid import uuid4
 
-from .commit import Commit, Commits
+from .checkpoint import Checkpoint, Checkpoints
 from .dir import Dirs
 from .entry import Entry, EntryKey
 from .event import AddEntryEvent, Events, RemoveEntryEvent
@@ -123,13 +123,6 @@ class Trail(
         return JSON(self)
 
     @cached_property
-    def commits(self):
-        out = Commits()
-        out._parent = self
-        out.jsonl.read()
-        return out
-
-    @cached_property
     def events(self):
         return Events(self)
 
@@ -171,13 +164,9 @@ class Trail(
         for path in requested:
             entry = self.entries.get(path)
             if entry is None:
-                # Adding new File or Dir Entry goes straight to staged
                 event = AddEntryEvent(src_path=str(path))
                 entry = event.apply(self)
-                self.events.staged[event.id] = event
-            else:
-                # Staging the events of an existing Entry
-                self.events.unstaged.stage(entry)
+                self.events[event.id] = event
             added.append(entry)
         return tuple(added)
 
@@ -197,11 +186,10 @@ class Trail(
             entry = self.entries.get(path)
             if entry is None:
                 continue
-            self.events.unstaged.stage(entry)
             event = RemoveEntryEvent(src_path=str(path))
             result = event.apply(self)
             if result is not None:
-                self.events.staged[event.id] = event
+                self.events[event.id] = event
                 removed.append(result)
         return tuple(removed)
 
@@ -209,17 +197,16 @@ class Trail(
             self,
             message: str = '',
             author: str | None = None,
-    ) -> Commit:
-        events = self.events.staged
+    ) -> Checkpoint:
+        events = self.events
         if not events:
-            raise ValueError('No staged events to commit.')
-        commit = Commit(
+            raise ValueError('No events to commit.')
+        commit = Checkpoint(
             events=list(events.values()),
             message=message,
             author=author,
         )
         self.commits[commit.id] = commit
-        events.commit()
         return commit
 
     def push(

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .trail import Trail
 
 @dataclass
-class Commit:
+class Checkpoint:
     id: int = field(default_factory=lambda: uuid4().int, kw_only=True)
     timestamp: datetime = field(
         default_factory=lambda: datetime.now(UTC),
@@ -28,7 +28,7 @@ class Commit:
     author: str | None = None
 
     @classmethod
-    def from_record(cls, /, **record) -> Commit:
+    def from_record(cls, /, **record) -> Checkpoint:
         record['timestamp'] = datetime.fromisoformat(record['timestamp'])
         return cls(**record)
 
@@ -47,28 +47,28 @@ class Commit:
 
 
 class JSONL(Node):
-    _parent: Commits
+    _parent: Checkpoints
 
     @property
     def path(self) -> Path | None:
         trail = self._trail
         if trail.dir:
-            return trail.dir / 'commits.jsonl'
+            return trail.dir / 'checkpoints.jsonl'
         return None
 
     def read(self) -> None:
         path = self.path
         if path is None or not path.exists():
             return
-        loaded: dict[int, Commit] = {}
+        loaded: dict[int, Checkpoint] = {}
         with path.open(encoding='utf-8') as file:
             for line in file:
                 if not line.strip():
                     continue
-                commit = Commit.from_record(**json.loads(line))
-                if commit.id in loaded:
-                    raise ValueError(f'Duplicate commit ID in {path}: {commit.id}')
-                loaded[commit.id] = commit
+                checkpoint = Checkpoint.from_record(**json.loads(line))
+                if checkpoint.id in loaded:
+                    raise ValueError(f'Duplicate commit ID in {path}: {checkpoint.id}')
+                loaded[checkpoint.id] = checkpoint
         self._parent.data.clear()
         self._parent.data.update(loaded)
 
@@ -77,19 +77,19 @@ class JSONL(Node):
         if path is None:
             return
         text = ''.join(
-            json.dumps(commit.to_record(), ensure_ascii=False) + '\n'
-            for commit in self._parent.values()
+            json.dumps(checkpoint.to_record(), ensure_ascii=False) + '\n'
+            for checkpoint in self._parent.values()
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding='utf-8')
 
-    def append(self, commits: Iterable[Commit]) -> None:
+    def append(self, checkpoints: Iterable[Checkpoint]) -> None:
         path = self.path
         if path is None:
             return
         text = ''.join(
-            json.dumps(commit.to_record(), ensure_ascii=False) + '\n'
-            for commit in commits
+            json.dumps(checkpoint.to_record(), ensure_ascii=False) + '\n'
+            for checkpoint in checkpoints
         )
         if not text:
             return
@@ -102,8 +102,8 @@ class JSONL(Node):
             file.write(text.encode('utf-8'))
 
 
-class Commits(
-    UserDict[int, Commit],
+class Checkpoints(
+    UserDict[int, Checkpoint],
     Node
 ):
     _parent: Trail
@@ -124,9 +124,9 @@ class Commits(
     def __setitem__(
             self,
             key: int,
-            value: Commit,
+            value: Checkpoint,
     ) -> None:
-        if not isinstance(value, Commit):
-            raise TypeError(f'Expected Commit, got {type(value).__name__}')
+        if not isinstance(value, Checkpoint):
+            raise TypeError(f'Expected Checkpoint, got {type(value).__name__}')
         self.jsonl.append([value])
         self.data[key] = value

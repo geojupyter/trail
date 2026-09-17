@@ -169,7 +169,7 @@ class WatchdogEvent(Event):
         if self.is_directory and self.event_type == 'deleted':
             trail.watchdog.invalidate(source)
         self.entry = entry
-        trail.events.unstaged[self.id] = self
+        trail.events[self.id] = self
         return entry
 
 
@@ -182,14 +182,14 @@ class JupyterEvent(Event):
 class JSONL(
     Node
 ):
-    _parent: EventDict
+    _parent: Events
 
     @property
     def path(self) -> Path | None:
         trail = self._trail
         events = self._parent
         if trail.dir:
-            return trail.dir / f'{events.__name__}.jsonl'
+            return trail.dir / f'events.jsonl'
         else:
             return None
 
@@ -240,37 +240,16 @@ class JSONL(
             file.write(text.encode('utf-8'))
 
 
-class EventDict(
+class Events(
     UserDict[int, Event],
     Node,
 ):
     """A collection and descriptor for binding filtered views of change records."""
-    _parent: Events
-    __name__: str
+    _parent: Trail
 
     @cached_property
     def jsonl(self) -> JSONL:
         return JSONL(self)
-
-    def _get(
-            self,
-            instance: Events,
-            owner: type[Event],
-    ) -> Self:
-        if instance is None:
-            return self
-        key = self.__name__
-        cache = instance.__dict__
-        if key in cache:
-            return cache[key]
-        out = self.__class__()
-        out._parent = instance
-        out.__name__ = key
-        out.jsonl.read()
-        cache[key] = out
-        return out
-
-    locals().update(__get__=_get)
 
     def update(self, m, /) -> None:
         batch = dict(m)
@@ -290,49 +269,3 @@ class EventDict(
     def clear(self):
         super().clear()
         self.jsonl.write()
-
-
-class Unstaged(EventDict):
-    _parent: Events
-
-    def stage(self, *entries: Entry):
-        """
-        todo: User needs to be able to do `trail add <path>` to stage events
-        """
-        staged = self._parent.staged
-        if entries:
-            entries = set(entries)
-            subset = {
-                key: event
-                for key, event in self.items()
-                if event.entry in entries
-            }
-            staged.update(subset)
-            for key in subset:
-                del self.data[key]
-            self.jsonl.write()
-        else:
-            staged.update(self)
-            self.clear()
-
-
-class Staged(EventDict):
-    _parent: Events
-
-    def commit(self):
-        """Move all staged events to the committed state."""
-        self._parent.committed.update(self)
-        self.clear()
-
-
-class Committed(EventDict):
-    _parent: Events
-
-
-class Events(
-    Node
-):
-    # watchdog.queue -> events.unstaged -> events.staged -> events.committed
-    unstaged = Unstaged()
-    staged = Staged()
-    committed = EventDict()

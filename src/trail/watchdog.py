@@ -24,7 +24,6 @@ from watchdog.events import (
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
-from ._changes import EVENT_TYPES
 from .entry import Entry
 from .event import WatchdogEvent
 from .node import Node
@@ -39,8 +38,6 @@ class Handler(FileSystemEventHandler, Node):
     _parent: Watchdog
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        if event.event_type not in EVENT_TYPES:
-            return
         watchdog = self._parent
         record = asdict(event)
         record['src_path'] = fsdecode(event.src_path)
@@ -131,7 +128,7 @@ class Watchdog(Node):
                 del self.watches[path]
 
     async def start(self) -> None:
-        consumer = self.__dict__.get('consumer')
+        consumer = self.consumer
         if consumer is not None:
             if not consumer.done():
                 return
