@@ -94,7 +94,11 @@ class Dir(Entry):
             if not isinstance(entry, Dir) or not entry.path.is_dir():
                 continue
             for child in entry.path.iterdir():
-                if child.is_symlink() or trail._ignored(child):
+                if (
+                    child.is_symlink()
+                    or trail._ignored(child)
+                    or child in trail._removed_paths
+                ):
                     continue
                 if child.is_dir():
                     collection = trail.dirs
@@ -115,85 +119,6 @@ class Dir(Entry):
         for path in self._watch_paths:
             self._watchdog.release(path, self.id)
         super().remove()
-
-    def change(
-            self,
-            event_type: str,
-            status: ChangeStatus = 'unstaged',
-            **kwargs,
-    ) -> Change:
-        return Change(
-            _parent=self._trail.files,
-            src_path=str(self.path),
-            event_type=event_type,
-            is_directory=True,
-            file_id=None,
-            dir_id=self.id,
-            status=status,
-            **kwargs,
-        )
-
-    def move(self, dest: str | Path) -> Self:
-        dirs = self._trail.dirs
-        if dirs.id2entry.get(self.id) is not self:
-            raise KeyError(f'Directory is not tracked: {self.path}')
-        dest = Path(dest).expanduser().resolve()
-        src = self.path
-        if src == dest:
-            return self
-        if dest.is_relative_to(src):
-            raise ValueError('Cannot move a directory inside itself')
-
-        files = self._trail.files
-        directories = [
-            (directory, directory.path, dest / directory.path.relative_to(src))
-            for directory in dirs.id2entry.values()
-            if directory.path.is_relative_to(src)
-        ]
-        descendants = [
-            (file, dest / file.path.relative_to(src))
-            for file in files.id2entry.values()
-            if file.path.is_relative_to(src)
-        ]
-        watchdog = self._watchdog
-        retained: list[tuple[Path, int]] = []
-        try:
-            for directory, previous, target in directories:
-                for path in dict.fromkeys((target, target.parent)):
-                    watchdog.watch(path)
-                    ids = watchdog.dir2ids.setdefault(path, set())
-                    if directory.id not in ids:
-                        ids.add(directory.id)
-                        retained.append((path, directory.id))
-            for file, target in descendants:
-                watchdog.watch(target.parent)
-                ids = watchdog.dir2ids.setdefault(target.parent, set())
-                if file.id not in ids:
-                    ids.add(file.id)
-                    retained.append((target.parent, file.id))
-        except Exception:
-            for path, identifier in reversed(retained):
-                watchdog.release(path, identifier)
-            raise
-
-        for directory, previous, target in directories:
-            occupant = dirs.path2entry.get(target)
-            if (
-                occupant is not None
-                and occupant is not directory
-            ):
-                occupant.remove()
-            retained_paths = {target, target.parent}
-            for path in dict.fromkeys((previous, previous.parent)):
-                if path not in retained_paths:
-                    watchdog.release(path, directory.id)
-            del dirs.path2entry[previous]
-            directory.path = target
-            dirs.path2entry[target] = directory
-        for file, target in descendants:
-            file.move(target)
-        return self
-
 
 class Dirs(Entries[Dir]):
     entry_type = Dir

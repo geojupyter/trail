@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from functools import cached_property
+from os import fsdecode
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Self
 
@@ -23,8 +24,9 @@ from watchdog.events import (
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
-from ._changes import Change, EVENT_TYPES
+from ._changes import EVENT_TYPES
 from .entry import Entry
+from .event import WatchdogEvent
 from .node import Node
 
 if TYPE_CHECKING:
@@ -40,7 +42,10 @@ class Handler(FileSystemEventHandler, Node):
         if event.event_type not in EVENT_TYPES:
             return
         watchdog = self._parent
-        change = Change(_parent=watchdog, **asdict(event))
+        record = asdict(event)
+        record['src_path'] = fsdecode(event.src_path)
+        record['dest_path'] = fsdecode(event.dest_path)
+        change = WatchdogEvent(**record)
         watchdog.loop.call_soon_threadsafe(watchdog.queue.put_nowait, change)
 
 
@@ -126,11 +131,12 @@ class Watchdog(Node):
                 del self.watches[path]
 
     async def start(self) -> None:
-        consumer = self.consumer
-        if consumer.done():
+        consumer = self.__dict__.get('consumer')
+        if consumer is not None:
+            if not consumer.done():
+                return
             await consumer
-        else:
-            return
+            del self.consumer
         self.loop = asyncio.get_running_loop()
         try:
             for directory in self.dir2ids:
@@ -204,14 +210,11 @@ class Watchdog(Node):
                 batch.append(event)
 
             trail = self._trail
-            tracked = []
             for event in batch:
-                if event.tracked() is None:
+                if event.apply(trail) is None:
                     continue
-                tracked.append(event)
                 if event.is_directory and event.event_type in ('created', 'moved'):
                     path = Path(event.dest_path or event.src_path)
-                    # if path.is_dir() and not trail._ignored(path):
                     if (
                         path.is_dir()
                         and not trail._ignored(path)
@@ -235,8 +238,12 @@ class Watchdog(Node):
                                 resource.remove()
                             raise
                         for resource in added:
-                            discovered = resource.event('created', is_synthetic=True)
-                            tracked.append(discovered)
-            trail.events.record(tracked)
+                            discovered = WatchdogEvent(
+                                src_path=str(resource.path),
+                                event_type='created',
+                                is_directory=resource.path in trail.dirs,
+                                is_synthetic=True,
+                            )
+                            discovered.apply(trail)
             if stopped:
                 return

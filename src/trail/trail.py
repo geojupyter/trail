@@ -115,6 +115,10 @@ class Trail(
         return EntryLookup(self)
 
     @cached_property
+    def _removed_paths(self) -> set[Path]:
+        return set()
+
+    @cached_property
     def json(self):
         return JSON(self)
 
@@ -183,23 +187,18 @@ class Trail(
                 and path.is_relative_to(self.dir)
         )
 
-    def remove(self, *entries: EntryKey | Entry, ) -> tuple[Entry, ...]:
-        selected: dict[int, Entry] = {}
-        for value in entries:
-            if isinstance(value, Entry):
-                entry = self.entries.get(value.id)
-                if entry is not value:
-                    continue
-            else:
-                if not isinstance(value, (str, Path, int)):
-                    raise TypeError('Expected a path, entry ID, or Entry')
-                entry = self.entries.get(value)
-            if entry is not None:
-                selected.setdefault(entry.id, entry)
+    def remove(self, *paths: str | Path) -> tuple[Entry, ...]:
+        requested = dict.fromkeys(
+            Path(path).expanduser().resolve()
+            for path in paths
+        )
         removed = []
-        for entry in selected.values():
+        for path in requested:
+            entry = self.entries.get(path)
+            if entry is None:
+                continue
             self.events.unstaged.stage(entry)
-            event = RemoveEntryEvent(src_path=str(entry.path))
+            event = RemoveEntryEvent(src_path=str(path))
             result = event.apply(self)
             if result is not None:
                 self.events.staged[event.id] = event

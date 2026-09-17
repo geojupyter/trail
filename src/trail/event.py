@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections import UserDict
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime, UTC
 from functools import cached_property
 from pathlib import Path
@@ -34,12 +34,14 @@ class Event:
         cls.classes[cls.__name__] = cls
 
     @classmethod
-    def from_record(cls, /, **record) -> Event:
+    def from_record(
+            cls,
+            /,
+            trail: Trail,
+            **record
+    ) -> Event:
         name = record.pop('cls')
         event_cls = cls.classes.get(name)
-        # todo: needs access to trail to resolve entry by ID
-        id = record.pop('entry')
-
 
         if name == cls.__name__:
             event_cls = cls
@@ -54,16 +56,23 @@ class Event:
         event = event_cls(**record)
         for name, value in deferred.items():
             setattr(event, name, value)
+
+        id = record.pop('entry')
+        entry = trail.entries[id]
+        event.entry = entry
         return event
 
     def to_record(self) -> dict:
-        out = dict(
-            cls=type(self).__name__,
-            **asdict(self),
-        )
+        out = {
+            field.name: getattr(self, field.name)
+            for field in fields(self)
+            if field.name != 'entry'
+        }
+        out['cls'] = type(self).__name__
         out['timestamp'] = self.timestamp.isoformat()
         out['entry'] = self.entry.id
         return out
+
 
 @dataclass(kw_only=True, slots=True)
 class AddEntryEvent(Event):
@@ -75,8 +84,10 @@ class AddEntryEvent(Event):
         if entry is None:
             entry = Entry.from_path(self.src_path, trail=trail)
         self.entry = entry
-        
-        return entry.add()
+
+        entry.add()
+        trail._removed_paths.discard(entry.path)
+        return entry
 
 
 @dataclass(kw_only=True, slots=True)
@@ -90,6 +101,7 @@ class RemoveEntryEvent(Event):
             return None
         self.entry = entry
         entry.remove()
+        trail._removed_paths.add(entry.path)
         return entry
 
 
@@ -97,21 +109,68 @@ class RemoveEntryEvent(Event):
 class WatchdogEvent(Event):
     src_path: str
     dest_path: str = ""
-    event_type: str = field(default="", init=False)
-    is_directory: bool = field(default=False, init=False)
+    event_type: str = ""
+    is_directory: bool = False
     is_synthetic: bool = field(default=False)
     entry: Entry | None = field(default=None, init=False)
 
-    def apply(self, trail: Trail):
-        entry = trail.entries[self.src_path]
-        self.entry = entry
+    def apply(self, trail: Trail) -> Entry | None:
         if (
-                self.event_type == 'moved'
-                and self.dest_path
-                and self.dest_path != self.src_path
+            self.event_type not in {'created', 'modified', 'deleted', 'moved'}
+            or (self.is_directory and self.event_type == 'modified')
         ):
-            entry.move(self.dest_path)
+            return None
+        source = Path(self.src_path).expanduser().resolve()
+        destination = None
+        if self.event_type == 'moved' and self.dest_path:
+            destination = Path(self.dest_path).expanduser().resolve()
+        for path in (source, destination):
+            if path is not None and (
+                path in trail._removed_paths
+                or trail._ignored(path)
+            ):
+                return None
+        if self.is_directory:
+            collection = trail.dirs
+        else:
+            collection = trail.files
+        entry = collection.get(source)
+        if entry is None and destination is not None:
+            entry = collection.get(destination)
+        if entry is None:
+            if destination is None:
+                path = source
+            else:
+                path = destination
+            target = Path(self.dest_path or self.src_path)
+            if (
+                self.event_type not in {'created', 'moved'}
+                or trail.dirs.get(path.parent) is None
+                or target.is_symlink()
+            ):
+                return None
+            try:
+                if self.is_directory:
+                    exists = path.is_dir()
+                else:
+                    exists = path.is_file()
+                if not exists:
+                    return None
+                entry = collection.add(path)[0]
+            except (FileNotFoundError, NotADirectoryError):
+                return None
+        self.src_path = str(source)
+        if destination is not None:
+            self.dest_path = str(destination)
+            if entry.path != destination:
+                entry.move(destination)
+        elif self.event_type == 'created':
+            entry.add()
+        if self.is_directory and self.event_type == 'deleted':
+            trail.watchdog.invalidate(source)
+        self.entry = entry
         trail.events.unstaged[self.id] = self
+        return entry
 
 
 @dataclass(kw_only=True, slots=True)
@@ -136,6 +195,7 @@ class JSONL(
 
     def read(self) -> None:
         path = self.path
+        trail = self._trail
         if path is None or not path.exists():
             return
         loaded: dict[int, Event] = {}
@@ -143,7 +203,7 @@ class JSONL(
             for line in file:
                 if not line.strip():
                     continue
-                event = Event.from_record(**json.loads(line))
+                event = Event.from_record(**json.loads(line), trail=trail)
                 if event.id in loaded:
                     raise ValueError(f'Duplicate event ID in {path}: {event.id}')
                 loaded[event.id] = event
@@ -259,13 +319,15 @@ class Unstaged(EventDict):
 class Staged(EventDict):
     _parent: Events
 
-    def commit( self):
+    def commit(self):
         """Move all staged events to the committed state."""
         self._parent.committed.update(self)
         self.clear()
 
+
 class Committed(EventDict):
     _parent: Events
+
 
 class Events(
     Node
