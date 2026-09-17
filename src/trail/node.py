@@ -4,11 +4,10 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .trail import Trail
     from .event import Event, Events
-    from .file import File
-    from .file import Files
-    from .watchdog import Watchdog, Handler
+    from .file import File, Files
+    from .trail import Trail
+    from .watchdog import Handler, Watchdog
 
 
 class Node:

@@ -4,14 +4,14 @@ from collections.abc import ItemsView, Iterable, Iterator
 from functools import cached_property
 from pathlib import Path
 from stat import S_ISDIR, S_ISREG
-from typing import overload, Self, TYPE_CHECKING
+from typing import TYPE_CHECKING, Self, overload
 from uuid import uuid4
 
 from .node import Node
 
 if TYPE_CHECKING:
-    from .trail import Trail
     from .event import Event
+    from .trail import Trail
 
 EntryKey = str | Path | int
 

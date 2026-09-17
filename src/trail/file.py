@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from functools import cached_property
 from pathlib import Path
-from typing import Self, TYPE_CHECKING
+from typing import Self
 
 from .entry import Entries, Entry
-from .event import Event, Events
 
-if TYPE_CHECKING:
-    from .trail import Trail
 
 class File(Entry):
     _parent: Files

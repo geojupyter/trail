@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import overload
 from uuid import uuid4
 
-from .checkpoint import Checkpoint, Checkpoints
+from .checkpoint import Checkpoint
 from .dir import Dirs
 from .entry import Entry, EntryKey
 from .event import AddEntryEvent, Events, RemoveEntryEvent
@@ -141,7 +141,7 @@ class Trail(
                 .expanduser()
                 .resolve()
             )
-            if not dir.name == '.trail':
+            if dir.name != '.trail':
                 dir /= '.trail'
             self.dir = dir
             self.json.load()

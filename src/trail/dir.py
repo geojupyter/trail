@@ -1,12 +1,11 @@
 from __future__ import annotations
-from functools import cached_property
 
 from collections.abc import Iterator
+from functools import cached_property
 from pathlib import Path
 from typing import Self
 
 from .entry import Entries, Entry
-from .event import Event, Events
 
 
 class Dir(Entry):

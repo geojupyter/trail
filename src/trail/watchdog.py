@@ -17,11 +17,9 @@ from watchdog.events import (
     FileDeletedEvent,
     FileModifiedEvent,
     FileMovedEvent,
+    FileOpenedEvent,
     FileSystemEvent,
     FileSystemEventHandler,
-    DirModifiedEvent,
-    FileOpenedEvent,
-    FileSystemMovedEvent,
 )
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
