@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .trail import Trail
-    from ._changes import Changes
+    from .event import Event, Events
     from .file import File
-    from ._changes import Change
     from .file import Files
     from .watchdog import Watchdog, Handler
 
 
 class Node:
+    # todo: these should all be weakrefs
 
     def __init__(
             self,
@@ -26,10 +26,10 @@ class Node:
         raise AttributeError(msg)
 
     @cached_property
-    def _event(self) -> Change:
-        from ._changes import Change
+    def _event(self) -> Event:
+        from .event import Event
         parent = self._parent
-        if isinstance(parent, Change):
+        if isinstance(parent, Event):
             return parent
         return parent._event
 
@@ -61,10 +61,13 @@ class Node:
         return parent._file
 
     @cached_property
-    def _events(self) -> Changes:
-        from ._changes import Changes
+    def _events(self) -> Events:
+        from .event import Events
+        from .trail import Trail
         parent = self._parent
-        if isinstance(parent, Changes):
+        if isinstance(parent, Trail):
+            return parent.events
+        if isinstance(parent, Events):
             return parent
         return parent._events
 

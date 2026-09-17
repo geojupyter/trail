@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Self, TYPE_CHECKING
 
 from .entry import Entries, Entry
-from ._changes import Change, Changes, ChangeStatus
+from .event import Event, Events
 
 if TYPE_CHECKING:
     from .trail import Trail
@@ -21,15 +21,15 @@ class File(Entry):
     def _watch_paths(self) -> tuple[Path, ...]:
         return (self.directory,)
 
-    @property
-    def events(self) -> Changes:
-        changes = self._trail.changes
-        selected = (
-            change
-            for change in changes
-            if change.file_id == self.id
-        )
-        return Changes(changes, selected)
+    # @property
+    # def events(self) -> Event:
+    #     changes = self._trail.changes
+    #     selected = (
+    #         change
+    #         for change in changes
+    #         if change.file_id == self.id
+    #     )
+    #     return Events(changes, selected)
 
     def add(self) -> Self:
         collection = self._parent

@@ -145,6 +145,8 @@ class Trail(
                 dir /= '.trail'
             self.dir = dir
             self.json.load()
+            self.events.jsonl.read()
+            self.json.dump()
 
     @cached_property
     def id(self) -> int:

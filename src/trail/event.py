@@ -4,10 +4,10 @@ import json
 from collections import UserDict
 from collections.abc import Iterable
 from dataclasses import dataclass, field, fields
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
-from typing import ClassVar, Self, TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from uuid import uuid4
 
 from .entry import Entry
@@ -25,7 +25,12 @@ class Event:
     id: int = field(default_factory=lambda: uuid4().int)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    def apply(self, trail: Trail):
+    def apply(
+            self,
+            trail: Trail,
+            *,
+            replay: bool = False,
+    ) -> Entry | None:
         raise NotImplementedError
 
     def __init_subclass__(cls, **kwargs) -> None:
@@ -38,6 +43,7 @@ class Event:
             cls,
             /,
             trail: Trail,
+            resolved_entry: Entry | None = None,
             **record
     ) -> Event:
         name = record.pop('cls')
@@ -47,6 +53,7 @@ class Event:
             event_cls = cls
         if event_cls is None:
             raise ValueError(f'Unknown event class: {name!r}')
+        entry_id = record.pop('entry')
         record['timestamp'] = datetime.fromisoformat(record['timestamp'])
         deferred = {
             field.name: record.pop(field.name)
@@ -57,9 +64,12 @@ class Event:
         for name, value in deferred.items():
             setattr(event, name, value)
 
-        id = record.pop('entry')
-        entry = trail.entries[id]
-        event.entry = entry
+        if resolved_entry is None:
+            resolved_entry = trail.entries[entry_id]
+        elif resolved_entry.id != entry_id:
+            raise ValueError(f'Entry ID does not match event record: {entry_id}')
+        event.entry = resolved_entry
+
         return event
 
     def to_record(self) -> dict:
@@ -77,15 +87,25 @@ class Event:
 @dataclass(kw_only=True, slots=True)
 class AddEntryEvent(Event):
     src_path: str
+    is_directory: bool = field(default=False, init=False)
     entry: Entry | None = field(default=None, init=False)
 
-    def apply(self, trail: Trail) -> Entry:
-        entry = trail.entries.get(self.src_path)
+    def apply(
+            self,
+            trail: Trail,
+            *,
+            replay: bool = False,
+    ) -> Entry:
+        if replay:
+            entry = self.entry
+        else:
+            entry = trail.entries.get(self.src_path)
         if entry is None:
             entry = Entry.from_path(self.src_path, trail=trail)
         self.entry = entry
 
         entry.add()
+        self.is_directory = entry.path in trail.dirs
         trail._removed_paths.discard(entry.path)
         return entry
 
@@ -95,8 +115,16 @@ class RemoveEntryEvent(Event):
     src_path: str
     entry: Entry | None = field(default=None, init=False)
 
-    def apply(self, trail: Trail) -> Entry | None:
-        entry = trail.entries.get(self.src_path)
+    def apply(
+            self,
+            trail: Trail,
+            *,
+            replay: bool = False,
+    ) -> Entry | None:
+        if replay:
+            entry = self.entry
+        else:
+            entry = trail.entries.get(self.src_path)
         if entry is None:
             return None
         self.entry = entry
@@ -114,9 +142,26 @@ class WatchdogEvent(Event):
     is_synthetic: bool = field(default=False)
     entry: Entry | None = field(default=None, init=False)
 
-    def apply(self, trail: Trail) -> Entry | None:
+    def apply(
+            self,
+            trail: Trail,
+            *,
+            replay: bool = False,
+    ) -> Entry | None:
+        if replay:
+            entry = self.entry
+            if entry is None:
+                raise ValueError('Cannot replay a watchdog event without an entry')
+            if self.event_type == 'moved' and self.dest_path:
+                entry.remove()
+                entry.path = Path(self.dest_path).expanduser().resolve()
+                entry.add()
+            elif self.event_type == 'created':
+                entry.add()
+            return entry
+
         if (
-            self.event_type not in {'created', 'modified', 'deleted', 'moved'}
+            self.event_type not in {'created', 'modified', 'deleted', 'moved', 'opened'}
             or (self.is_directory and self.event_type == 'modified')
         ):
             return None
@@ -175,8 +220,13 @@ class WatchdogEvent(Event):
 
 @dataclass(kw_only=True, slots=True)
 class JupyterEvent(Event):
-    def apply(self, trail: Trail):
-        ...
+    def apply(
+            self,
+            trail: Trail,
+            *,
+            replay: bool = False,
+    ) -> Entry | None:
+        return self.entry
 
 
 class JSONL(
@@ -187,26 +237,45 @@ class JSONL(
     @property
     def path(self) -> Path | None:
         trail = self._trail
-        events = self._parent
         if trail.dir:
-            return trail.dir / f'events.jsonl'
+            return trail.dir / 'events.jsonl'
         else:
             return None
 
     def read(self) -> None:
+        from .dir import Dir
+        from .file import File
+
         path = self.path
         trail = self._trail
         if path is None or not path.exists():
             return
         loaded: dict[int, Event] = {}
+        entries: dict[int, Entry] = {}
         with path.open(encoding='utf-8') as file:
             for line in file:
                 if not line.strip():
                     continue
-                event = Event.from_record(**json.loads(line), trail=trail)
+                record = json.loads(line)
+                entry_id = record['entry']
+                entry = entries.get(entry_id)
+                if entry is None:
+                    entry = trail.entries.get(entry_id)
+                    if entry is None:
+                        entry_path = Path(record['src_path']).expanduser().resolve()
+                        if record.get('is_directory', entry_path.is_dir()):
+                            entry = Dir(trail.dirs)
+                        else:
+                            entry = File(trail.files)
+                        entry.path = entry_path
+                        entry.id = entry_id
+                    entries[entry_id] = entry
+                event = Event.from_record(trail=trail, resolved_entry=entry, **record)
                 if event.id in loaded:
                     raise ValueError(f'Duplicate event ID in {path}: {event.id}')
                 loaded[event.id] = event
+
+                event.apply(trail, replay=True)
         self._parent.data.clear()
         self._parent.data.update(loaded)
 
@@ -246,6 +315,10 @@ class Events(
 ):
     """A collection and descriptor for binding filtered views of change records."""
     _parent: Trail
+
+    def __init__(self, parent: Trail) -> None:
+        UserDict.__init__(self)
+        Node.__init__(self, parent)
 
     @cached_property
     def jsonl(self) -> JSONL:

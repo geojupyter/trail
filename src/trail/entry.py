@@ -7,7 +7,6 @@ from stat import S_ISDIR, S_ISREG
 from typing import overload, Self, TYPE_CHECKING
 from uuid import uuid4
 
-from ._changes import Change, Changes, ChangeStatus
 from .node import Node
 
 if TYPE_CHECKING:
@@ -201,4 +200,3 @@ class Entries[E: Entry](Node):
                 entry.remove()
             raise
         return tuple(selected.values())
-

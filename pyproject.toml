@@ -3,4 +3,18 @@ name = "trail"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
-dependencies = ["platformdirs", "watchdog>=6.0"]
+dependencies = ["watchdog>=6.0"]
+authors = [
+    { name = "Maryam Hosseini", email = "maryamh@berkeley.edu" },
+    { name = "Matt Fisher", email="mfisher87@gmail.com"}
+]
+maintainers = [
+    { name = "Daniel Hodczak", email = "dhodcz2@uic.edu" }
+]
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = [
+    "trail",
+]

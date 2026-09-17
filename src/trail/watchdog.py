@@ -19,7 +19,9 @@ from watchdog.events import (
     FileMovedEvent,
     FileSystemEvent,
     FileSystemEventHandler,
-    DirModifiedEvent
+    DirModifiedEvent,
+    FileOpenedEvent,
+    FileSystemMovedEvent,
 )
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
@@ -84,8 +86,8 @@ class Watchdog(Node):
 
     def watch(self, directory: Path) -> None:
         if (
-            directory not in self.watches
-            and directory.is_dir()
+                directory not in self.watches
+                and directory.is_dir()
         ):
             self.watches[directory] = self.observer.schedule(
                 self.handler,
@@ -96,6 +98,7 @@ class Watchdog(Node):
                     FileModifiedEvent,
                     FileDeletedEvent,
                     FileMovedEvent,
+                    FileOpenedEvent,
                     DirCreatedEvent,
                     DirDeletedEvent,
                     DirMovedEvent,
@@ -128,7 +131,7 @@ class Watchdog(Node):
                 del self.watches[path]
 
     async def start(self) -> None:
-        consumer = self.consumer
+        consumer = self.__dict__.get('consumer')
         if consumer is not None:
             if not consumer.done():
                 return
@@ -213,8 +216,8 @@ class Watchdog(Node):
                 if event.is_directory and event.event_type in ('created', 'moved'):
                     path = Path(event.dest_path or event.src_path)
                     if (
-                        path.is_dir()
-                        and not trail._ignored(path)
+                            path.is_dir()
+                            and not trail._ignored(path)
                     ):
                         try:
                             root = trail.dirs.get(path)

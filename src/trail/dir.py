@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Self
 
 from .entry import Entries, Entry
-from ._changes import Change, Changes, ChangeStatus
+from .event import Event, Events
 
 
 class Dir(Entry):
@@ -20,15 +20,15 @@ class Dir(Entry):
     def _watch_paths(self) -> tuple[Path, ...]:
         return tuple(dict.fromkeys((self.path, self.directory)))
 
-    @property
-    def events(self) -> Changes:
-        changes = self._trail.changes
-        selected = (
-            change
-            for change in changes
-            if change.dir_id == self.id
-        )
-        return Changes(changes, selected)
+    # @property
+    # def events(self) -> Events:
+    #     changes = self._trail.changes
+    #     selected = (
+    #         change
+    #         for change in changes
+    #         if change.dir_id == self.id
+    #     )
+    #     return Changes(changes, selected)
 
     def add(self) -> Self:
         collection = self._parent
