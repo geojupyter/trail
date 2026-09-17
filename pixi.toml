@@ -1,0 +1,13 @@
+[workspace]
+authors = ["The GeoJupyter Community"]
+channels = ["conda-forge"]
+name = "trail"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+preview = "myst start"
+render = "myst build --html --strict"
+
+[dependencies]
+mystmd = ">=1.10.1,<2"

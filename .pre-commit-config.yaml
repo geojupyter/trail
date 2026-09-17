@@ -1,0 +1,41 @@
+ci:
+  autoupdate_schedule: quarterly
+  autofix_prs: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: forbid-new-submodules
+      - id: end-of-file-fixer
+        exclude: galata/.*-snapshots
+      - id: check-case-conflict
+      - id: requirements-txt-fixer
+      - id: check-added-large-files
+        args: ['--maxkb=5000']
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+      - id: debug-statements
+      - id: check-builtin-literals
+      - id: trailing-whitespace
+        exclude: .bumpversion.cfg
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        args: ['--fix', '--show-fixes', '--exit-non-zero-on-fix']
+      - id: ruff-format
+
+  - repo: https://github.com/citation-file-format/cffconvert
+    rev: "b6045d78aac9e02b039703b030588d54d53262ac"
+    hooks:
+      - id: validate-cff
+
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout
